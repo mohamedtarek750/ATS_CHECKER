@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 from ats.config import ROLE_TAXONOMY, Settings
-from ats.pipeline import discover, screen_many, summarize, write_reports
+from ats.pipeline import discover, preflight, screen_many, summarize, write_reports
 from ats.router import prepare_tree
 
 # Windows consoles default to cp1252 and choke on CV text.
@@ -71,18 +71,27 @@ def main(argv: list[str] | None = None) -> int:
         print("Supported: .pdf .docx .txt .md .rtf")
         return 1
 
+    # Fail once, loudly, rather than turning every CV in the batch into a failure.
+    problem = preflight(settings)
+    if problem:
+        print(f"Cannot start: {problem}")
+        return 2
+
     print(f"Screening {len(paths)} file(s) with {settings.model} "
           f"(AI-reject threshold {settings.ai_threshold})\n")
 
     def on_progress(result, done: int, total: int) -> None:
-        mark = "PASS" if result.accepted else "DROP"
+        mark = "FAIL" if result.errored else "PASS" if result.accepted else "DROP"
         detail = result.role_label if result.accepted else result.reason
         print(f"  [{done}/{total}] {mark}  {result.filename}  ->  {detail}")
 
     results = screen_many(paths, settings, on_progress=on_progress)
     stats = summarize(results)
 
-    print(f"\nAccepted: {stats['accepted']}   Rejected: {stats['rejected']}")
+    print(
+        f"\nAccepted: {stats['accepted']}   Rejected: {stats['rejected']}"
+        f"   Not screened: {stats['errors']}"
+    )
     if stats["accepted_by_role"]:
         print("\n  Accepted by role")
         for role, count in stats["accepted_by_role"].items():
@@ -97,11 +106,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\nOutput  : {settings.output_dir.resolve()}")
         print(f"Report  : {reports['csv']}")
 
-    failed = [r for r in results if r.error]
-    if failed:
-        print(f"\n{len(failed)} file(s) hit an error:")
-        for result in failed[:10]:
+    unscreened = [r for r in results if r.errored]
+    if unscreened:
+        print(
+            f"\n{len(unscreened)} file(s) were NOT screened. These are not "
+            f"rejections - nothing was judged."
+        )
+        if not settings.dry_run:
+            print(f"They are held in {settings.unscreened_dir}. Re-run them.")
+        for result in unscreened[:10]:
             print(f"    {result.filename}: {result.error}")
+        return 3
     return 0
 
 

@@ -30,6 +30,9 @@ def unique_path(directory: Path, filename: str) -> Path:
 
 
 def target_dir(decision: Decision, settings: Settings) -> Path:
+    # Unscreened files are held on their own, never mixed into rejected/.
+    if decision.errored:
+        return settings.unscreened_dir
     base = settings.accepted_dir if decision.accepted else settings.rejected_dir
     return base / decision.role_folder
 

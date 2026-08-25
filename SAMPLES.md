@@ -6,6 +6,9 @@ the system behaves before you point it at real applicants, and to calibrate
 
 Regenerate any time with `python samples/make_samples.py`.
 
+This file lives at the repo root, not in `samples/`, so that
+`--input samples` picks up only the sample CVs.
+
 ```bash
 python ats_cli.py --input samples --output data/output --dry-run
 ```

@@ -10,7 +10,14 @@ import pandas as pd
 import streamlit as st
 
 from ats.config import ROLE_TAXONOMY, Settings
-from ats.pipeline import CSV_COLUMNS, discover, screen_many, summarize, write_reports
+from ats.pipeline import (
+    CSV_COLUMNS,
+    discover,
+    preflight,
+    screen_many,
+    summarize,
+    write_reports,
+)
 from ats.router import prepare_tree
 
 st.set_page_config(page_title="ACUD ATS Checker", layout="wide")
@@ -20,6 +27,7 @@ REASON_LABELS = {
     "ai_generated": "AI-generated",
     "unreadable": "Unreadable file",
     "insufficient_content": "Too little content",
+    "screening_failed": "NOT screened",
     "none": "-",
 }
 
@@ -125,11 +133,20 @@ def collect_inputs(settings: Settings) -> list[Path]:
 def render_results(results: list, settings: Settings) -> None:
     stats = summarize(results)
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     col1.metric("Screened", stats["total"])
     col2.metric("Accepted", stats["accepted"])
     col3.metric("Rejected", stats["rejected"])
-    col4.metric("Roles found", len(stats["accepted_by_role"]))
+    col4.metric("Not screened", stats["errors"])
+    col5.metric("Roles found", len(stats["accepted_by_role"]))
+
+    if stats["errors"]:
+        st.warning(
+            f"{stats['errors']} file(s) could not be screened, so no judgement was "
+            f"made on them. They are **not** rejections - they are held in "
+            f"`{settings.unscreened_dir}` and should be re-run once the problem "
+            f"below is fixed."
+        )
 
     frame = pd.DataFrame([asdict(r) for r in results])
     display_columns = [c for c in CSV_COLUMNS if c in frame.columns]
@@ -190,11 +207,12 @@ def render_results(results: list, settings: Settings) -> None:
     st.divider()
     st.subheader("Per-CV detail")
     for result in results:
-        badge = (
-            "ACCEPTED"
-            if result.accepted
-            else "REJECTED - " + REASON_LABELS.get(result.reason, result.reason)
-        )
+        if result.errored:
+            badge = "NOT SCREENED"
+        elif result.accepted:
+            badge = "ACCEPTED"
+        else:
+            badge = "REJECTED - " + REASON_LABELS.get(result.reason, result.reason)
         header = f"{badge}  |  {result.filename}  |  {result.role_label}"
         with st.expander(header):
             left, right = st.columns(2)
@@ -275,7 +293,12 @@ def main() -> None:
     paths = collect_inputs(settings)
 
     st.divider()
-    disabled = not paths
+    # Block the run outright rather than letting every CV fail one by one.
+    problem = preflight(settings)
+    if problem:
+        st.error(problem)
+
+    disabled = not paths or bool(problem)
     if st.button(f"Screen {len(paths)} CV(s)", type="primary", disabled=disabled):
         folders = (
             [r["folder"] for r in ROLE_TAXONOMY]
@@ -288,7 +311,7 @@ def main() -> None:
         lines: list[str] = []
 
         def on_progress(result, done: int, total: int) -> None:
-            mark = "PASS" if result.accepted else "DROP"
+            mark = "FAIL" if result.errored else "PASS" if result.accepted else "DROP"
             detail = (
                 result.role_label
                 if result.accepted

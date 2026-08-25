@@ -12,9 +12,9 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from .classifier import ClassificationError, classify
+from .classifier import ClassificationError, classify, has_credentials
 from .config import SUPPORTED_EXTENSIONS, Settings
-from .decision import Decision, decide, rejection_for_broken_file
+from .decision import Decision, decide, rejection_for_broken_file, screening_failure
 from .extract import extract
 from .router import prepare_tree, route
 from .schema import Verdict
@@ -53,6 +53,10 @@ class ScreenResult:
     def accepted(self) -> bool:
         return self.status == "accepted"
 
+    @property
+    def errored(self) -> bool:
+        return self.status == "error"
+
 
 def _result_from(
     source: Path,
@@ -90,6 +94,20 @@ def _result_from(
     return result
 
 
+def preflight(settings: Settings) -> str:
+    """Return an error message if a run cannot possibly succeed, else ''.
+
+    Checked before screening so a missing key fails once, loudly, instead of
+    turning every CV in the batch into a failure record.
+    """
+    if not has_credentials():
+        return (
+            "No Anthropic credentials found. Set ANTHROPIC_API_KEY in your "
+            "environment or in a .env file next to this project, then run again."
+        )
+    return ""
+
+
 def discover(inbox: Path) -> list[Path]:
     """Every supported CV file under `inbox`, recursively, sorted by name."""
     if not inbox.exists():
@@ -118,8 +136,9 @@ def screen_one(path: Path, settings: Settings) -> ScreenResult:
             decision = decide(verdict, doc, settings)
             error = ""
         except ClassificationError as exc:
+            # The CV was never judged. Do not record it as a rejection.
             verdict = None
-            decision = rejection_for_broken_file(doc, f"Screening failed: {exc}")
+            decision = screening_failure(str(exc))
             error = str(exc)
 
     result = _result_from(path, decision, verdict, time.perf_counter() - started, error)
@@ -228,14 +247,15 @@ def summarize(results: list[ScreenResult]) -> dict:
     by_reason: dict[str, int] = {}
     by_role: dict[str, int] = {}
     for result in results:
-        if not result.accepted:
-            by_reason[result.reason] = by_reason.get(result.reason, 0) + 1
-        else:
+        if result.accepted:
             by_role[result.role_label] = by_role.get(result.role_label, 0) + 1
+        elif not result.errored:
+            by_reason[result.reason] = by_reason.get(result.reason, 0) + 1
     return {
         "total": len(results),
         "accepted": sum(1 for r in results if r.accepted),
-        "rejected": sum(1 for r in results if not r.accepted),
+        "rejected": sum(1 for r in results if r.status == "rejected"),
+        "errors": sum(1 for r in results if r.errored),
         "accepted_by_role": dict(sorted(by_role.items(), key=lambda kv: -kv[1])),
         "rejected_by_reason": dict(sorted(by_reason.items(), key=lambda kv: -kv[1])),
     }

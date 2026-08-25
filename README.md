@@ -15,6 +15,7 @@ data/output/
 │   ├── Data_Scientists/      <- looked like a Data Scientist CV, but AI-generated
 │   ├── Undetermined/         <- not a CV at all: invoices, cover letters, junk
 │   └── ...
+├── _unscreened/              <- never reached Claude. NOT rejections - re-run these
 └── _reports/
     ├── report_20260825_121500.csv
     ├── report_20260825_121500.json
@@ -94,7 +95,7 @@ python samples/make_samples.py
 python ats_cli.py --input samples --output data/output --dry-run
 ```
 
-`samples/EXPECTED.md` lists the outcome each file should produce and what it is
+`SAMPLES.md` lists the outcome each file should produce and what it is
 testing. Note that the two AI-generated samples are deliberate caricatures — real
 ones are much subtler, so a clean sweep here is not evidence the detector is
 reliable.
@@ -129,6 +130,19 @@ threshold without re-tuning any wording.
 A CV whose role cannot be pinned down confidently (`role_confidence` below
 `--min-role-confidence`, default 40) is **still accepted** but filed under
 `Undetermined/` rather than being guessed into the wrong folder.
+
+### Failures are not rejections
+
+If a CV never reaches Claude — no API key, rate limit, network drop — it gets
+status `error`, reason `screening_failed`, and is held in `_unscreened/`. It is
+**never** written into `rejected/`, because nothing was judged: filing it there
+would record a decision against a candidate that nobody ever made. Fix the cause
+and re-run those files.
+
+Both entry points check credentials *before* screening starts, so a missing key
+fails once with a clear message instead of turning a batch of 200 CVs into 200
+failure records. The CLI exits `2` for a blocked run and `3` when some files ended
+up unscreened.
 
 ---
 

@@ -28,12 +28,17 @@ class ClassificationError(RuntimeError):
     """Raised when Claude could not produce a verdict for a document."""
 
 
+def has_credentials() -> bool:
+    """True when the SDK will find something to authenticate with."""
+    return bool(os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN"))
+
+
 def get_client() -> anthropic.Anthropic:
     """Lazily build a shared client (thread-safe, reused across CVs)."""
     global _client
     with _client_lock:
         if _client is None:
-            if not (os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")):
+            if not has_credentials():
                 raise ClassificationError(
                     "No Anthropic credentials found. Set ANTHROPIC_API_KEY in your "
                     "environment or in a .env file next to this project."

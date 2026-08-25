@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from .config import LABEL_TO_FOLDER, Settings
+from .config import LABEL_TO_FOLDER, SCREENING_FAILED, Settings
 from .extract import ExtractedDoc
 from .schema import Verdict
 
@@ -14,7 +14,7 @@ UNDETERMINED = "Undetermined"
 
 @dataclass
 class Decision:
-    status: str          # "accepted" | "rejected"
+    status: str          # "accepted" | "rejected" | "error"
     reason: str          # "none" or one of config.REJECT_REASONS
     explanation: str     # human-readable, shown in the UI and the report
     role_label: str      # e.g. "Data Scientist"
@@ -23,6 +23,10 @@ class Decision:
     @property
     def accepted(self) -> bool:
         return self.status == "accepted"
+
+    @property
+    def errored(self) -> bool:
+        return self.status == "error"
 
 
 def slugify(value: str) -> str:
@@ -103,11 +107,27 @@ def decide(verdict: Verdict, doc: ExtractedDoc, settings: Settings) -> Decision:
 
 
 def rejection_for_broken_file(doc: ExtractedDoc, message: str) -> Decision:
-    """Decision for a file that never reached the LLM."""
+    """A genuine property of the file: corrupt, encrypted, or an unsupported type."""
     return Decision(
         status="rejected",
         reason="unreadable",
         explanation=message or doc.error or "The file could not be read.",
+        role_label=UNDETERMINED,
+        role_folder=LABEL_TO_FOLDER[UNDETERMINED],
+    )
+
+
+def screening_failure(message: str) -> Decision:
+    """The CV was never screened - no API key, rate limit, network failure.
+
+    This is deliberately NOT a rejection. Nothing was judged, so filing it under
+    rejected/ would record a decision against a candidate that nobody ever made.
+    These files go to _unscreened/ and are meant to be re-run.
+    """
+    return Decision(
+        status="error",
+        reason=SCREENING_FAILED,
+        explanation=message,
         role_label=UNDETERMINED,
         role_folder=LABEL_TO_FOLDER[UNDETERMINED],
     )

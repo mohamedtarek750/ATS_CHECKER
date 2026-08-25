@@ -75,6 +75,10 @@ REJECT_REASONS: list[str] = [
     "insufficient_content",  # a CV, but far too thin to evaluate
 ]
 
+# Not a rejection. The CV never reached a verdict (no API key, rate limit, network
+# failure), so it must never be filed as though a human judgement went against it.
+SCREENING_FAILED = "screening_failed"
+
 
 def _env_int(name: str, default: int) -> int:
     try:
@@ -125,6 +129,11 @@ class Settings:
     @property
     def rejected_dir(self) -> Path:
         return self.output_dir / "rejected"
+
+    @property
+    def unscreened_dir(self) -> Path:
+        """Files that errored before a verdict existed - NOT rejections."""
+        return self.output_dir / "_unscreened"
 
     @property
     def reports_dir(self) -> Path:

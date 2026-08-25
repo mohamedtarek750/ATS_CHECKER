@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT))
 
 from ats import pipeline  # noqa: E402
 from ats.config import Settings  # noqa: E402
+from ats.classifier import ClassificationError  # noqa: E402
 from ats.decision import decide, slugify  # noqa: E402
 from ats.extract import extract  # noqa: E402
 from ats.schema import Verdict  # noqa: E402
@@ -241,6 +242,64 @@ def test_move_empties_inbox():
     finally:
         pipeline.classify = original
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_api_failure_is_not_a_rejection():
+    """A CV that never reached Claude must not be recorded as rejected."""
+
+    def failing_classify(doc, settings):
+        raise ClassificationError("No Anthropic credentials found.")
+
+    original = pipeline.classify
+    pipeline.classify = failing_classify
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        inbox = tmp / "inbox"
+        inbox.mkdir()
+        shutil.copy2(FIXTURES / "sample_human_cv.pdf", inbox / "cv.pdf")
+
+        settings = Settings()
+        settings.inbox_dir = inbox
+        settings.output_dir = tmp / "out"
+
+        results = pipeline.screen_many(pipeline.discover(inbox), settings)
+        result = results[0]
+
+        assert result.status == "error"
+        assert result.errored
+        assert not result.accepted
+        assert result.reason == "screening_failed"
+
+        # It is held on its own, never filed as a rejection under a role.
+        assert (settings.unscreened_dir / "cv.pdf").exists()
+        assert not settings.rejected_dir.exists() or not any(
+            settings.rejected_dir.rglob("cv.pdf")
+        )
+
+        stats = pipeline.summarize(results)
+        assert stats["errors"] == 1
+        assert stats["rejected"] == 0
+        assert stats["rejected_by_reason"] == {}
+    finally:
+        pipeline.classify = original
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_preflight_blocks_a_run_without_credentials():
+    import os
+
+    saved = os.environ.pop("ANTHROPIC_API_KEY", None), os.environ.pop(
+        "ANTHROPIC_AUTH_TOKEN", None
+    )
+    try:
+        assert "credentials" in pipeline.preflight(Settings())
+        os.environ["ANTHROPIC_API_KEY"] = "sk-ant-test"
+        assert pipeline.preflight(Settings()) == ""
+    finally:
+        os.environ.pop("ANTHROPIC_API_KEY", None)
+        for name, value in zip(("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"), saved):
+            if value is not None:
+                os.environ[name] = value
 
 
 if __name__ == "__main__":
