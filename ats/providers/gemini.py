@@ -36,8 +36,16 @@ _FATAL_MARKERS = (
     "api_key_invalid",
     "permission_denied",
     "billing",
-    "is not found for api version",
     "not supported for",
+)
+
+# A wrong or retired model name. Google closes older models to new API keys, so a
+# model that worked last month can start returning 404 with no other change.
+_BAD_MODEL_MARKERS = (
+    "is not found for api version",
+    "no longer available",
+    "not found for api version",
+    "is not supported",
 )
 # A spent daily allowance is fatal; a per-minute burst is not.
 _DAILY_QUOTA_MARKERS = ("perday", "per day", "requests per day", "daily")
@@ -46,10 +54,11 @@ _DAILY_QUOTA_MARKERS = ("perday", "per day", "requests per day", "daily")
 class GeminiProvider(Provider):
     name = "Google Gemini"
     models = (
-        "gemini-2.5-flash",
-        "gemini-2.5-pro",
-        "gemini-2.0-flash",
-        "gemini-2.5-flash-lite",
+        "gemini-3.6-flash",
+        "gemini-3.5-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-flash-latest",
+        "gemini-pro-latest",
     )
     credential_env = "GEMINI_API_KEY"
 
@@ -81,6 +90,16 @@ class GeminiProvider(Provider):
 
                 self._client = genai.Client(api_key=self._api_key())
             return self._client
+
+    def list_models(self) -> list[str]:
+        """Model ids this key can actually call. Keeps a stale list from biting."""
+        client = self._get_client()
+        names = []
+        for model in client.models.list():
+            actions = getattr(model, "supported_actions", None) or []
+            if not actions or "generateContent" in actions:
+                names.append(model.name.replace("models/", ""))
+        return sorted(names)
 
     # -- request building --------------------------------------------------
     @staticmethod
@@ -118,6 +137,14 @@ class GeminiProvider(Provider):
         text = str(exc).lower()
         status = getattr(exc, "code", None) or getattr(exc, "status_code", None)
 
+        if status == 404 or any(marker in text for marker in _BAD_MODEL_MARKERS):
+            suggested = ", ".join(GeminiProvider.models[:3])
+            return FatalScreeningError(
+                f"Gemini rejected the model name. Set ATS_MODEL to one of "
+                f"{suggested}, or run `python ats_cli.py --list-models` to see what "
+                f"this key can actually use. Original error: {exc}"
+            )
+
         if any(marker in text for marker in _FATAL_MARKERS):
             if "api key" in text or "api_key" in text:
                 return FatalScreeningError(
@@ -131,8 +158,8 @@ class GeminiProvider(Provider):
                 return FatalScreeningError(
                     "The Gemini free-tier daily quota is used up. It resets at "
                     "midnight Pacific time - re-run the unscreened files then, or "
-                    "switch ATS_MODEL to gemini-2.0-flash which has a larger daily "
-                    "allowance."
+                    "switch ATS_MODEL to gemini-3.5-flash-lite, which has a "
+                    "larger daily allowance."
                 )
             return ClassificationError(f"Rate limited after {MAX_ATTEMPTS} attempts: {exc}")
 

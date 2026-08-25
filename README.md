@@ -55,6 +55,13 @@ ATS_PROVIDER=gemini
 GEMINI_API_KEY=AIza...
 ```
 
+Google retires models to new keys without warning, which shows up as a 404. If that
+happens, ask your own key what it can run:
+
+```bash
+python ats_cli.py --list-models
+```
+
 **Paid — Anthropic Claude.** A key from console.anthropic.com plus credits on the
 account. Stronger at the AI-generation judgement, which is the hardest call the
 system makes.
@@ -192,7 +199,7 @@ sidebar:
 | Variable | Default | Purpose |
 |---|---|---|
 | `ATS_PROVIDER` | `gemini` | `gemini` (free) or `claude` (paid). |
-| `ATS_MODEL` | per provider | `gemini-2.5-flash` / `claude-opus-5`. |
+| `ATS_MODEL` | per provider | `gemini-3.6-flash` / `claude-opus-5`. |
 | `ATS_GEMINI_RPM` | `10` | Free-tier requests per minute to stay under. |
 | `ATS_EFFORT` | `medium` | Claude only: reasoning effort `low`…`max`. |
 | `ATS_AI_THRESHOLD` | `70` | AI score at which a CV is rejected. |
@@ -277,10 +284,10 @@ per-minute burst is not, and that the rate limiter really spaces requests out.
 
 None of the three need an API key.
 
-> The offline suites are green. The **live** Claude path has not been exercised in
-> this repository because no API key was available when it was written — run
-> `python ats_cli.py --input tests/fixtures --dry-run` once with a real key as your
-> first smoke test.
+> The offline suites are green, and the **Gemini** path has been exercised live:
+> a full 13-sample run on `gemini-3.6-flash` matched every expected outcome
+> (`SAMPLES.md`). The **Claude** path is covered only by the mock-transport test —
+> no credits were available to run it end to end.
 
 The fixture CVs are synthetic. `tests/make_fixture_pdf.py` regenerates the sample
 PDF if you need to change it. Do not commit real applicants' CVs to this repo —

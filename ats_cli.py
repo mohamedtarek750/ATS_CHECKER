@@ -40,6 +40,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--model", default=None, help="Model id for the provider.")
     parser.add_argument(
+        "--list-models", action="store_true",
+        help="Print the models this provider's key can actually call, then exit.",
+    )
+    parser.add_argument(
         "--scaffold", action="store_true",
         help="Pre-create an empty folder for every role in the taxonomy.",
     )
@@ -68,9 +72,39 @@ def make_settings(args: argparse.Namespace) -> Settings:
     return settings
 
 
+def list_models(settings: Settings) -> int:
+    """Ask the provider what it can actually run. Model ids go stale silently."""
+    from ats.providers import get_provider
+
+    provider = get_provider(settings.provider)
+    if not provider.has_credentials():
+        print(f"Cannot list models: {provider.missing_credentials_message()}")
+        return 2
+    if not hasattr(provider, "list_models"):
+        print(f"{provider.name} models: {', '.join(provider.models)}")
+        return 0
+
+    try:
+        names = provider.list_models()
+    except Exception as exc:  # noqa: BLE001
+        print(f"Could not list models: {exc}")
+        return 2
+
+    print(f"{provider.name} models available to this key ({len(names)}):\n")
+    for name in names:
+        marker = "  <- current" if name == settings.model else ""
+        print(f"  {name}{marker}")
+    print("\nSet one with:  ATS_MODEL=<name>  in .env,  or  --model <name>")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     settings = make_settings(args)
+
+    if args.list_models:
+        return list_models(settings)
+
     folders = [r["folder"] for r in ROLE_TAXONOMY] if args.scaffold else None
     prepare_tree(settings, folders)
 

@@ -23,7 +23,7 @@ python ats_cli.py --input samples --output data/output --dry-run
 | `06_uiux_designer_laila.pdf` | accepted | `UI_UX_Designers` | Figma, research, design system |
 | `07_ai_generated_data_scientist.pdf` | **rejected** `ai_generated` | `Data_Scientists` | Every bullet is "Spearheaded/Leveraged/Utilized … by N%" |
 | `08_ai_generated_fullstack_template.docx` | **rejected** `ai_generated` | `Full_Stack_Developers` | Unfilled `[Your Name]` placeholders, "Certainly! Here is…", trailing "Would you like me to tailor this…" |
-| `09_cover_letter.pdf` | **rejected** `not_a_cv` | `Undetermined` | A letter, not a CV |
+| `09_cover_letter.pdf` | **rejected** `not_a_cv` | `Data_Analysts` or `Undetermined` | A letter, not a CV. The letter names the role it applies for, so filing it under that role is also correct |
 | `10_certificate.txt` | **rejected** `not_a_cv` | `Undetermined` | Course completion certificate |
 | `11_job_posting.txt` | **rejected** `not_a_cv` | `Undetermined` | The employer's own vacancy ad |
 | `12_too_short.txt` | **rejected** `insufficient_content` | `Undetermined` | 47 characters |
@@ -49,6 +49,38 @@ written the way people actually write: uneven bullets, an unfinished project, "w
 was... an experience", a WER that is "still not good enough". If any of them scores
 above 60 on `ai_generated_score`, your threshold is going to reject real applicants.
 Read the `ai_signals` array in the detail JSON to see what the model reacted to.
+
+## Measured run
+
+Full run on `gemini-3.6-flash`, 25 Aug 2026 — **13/13 matched**, roughly 10 s per CV:
+
+| File | Status | Role | AI | Conf | Quality |
+|---|---|---|---:|---:|---:|
+| `01_data_analyst_omar.pdf` | accepted | Data Analyst | 5 | 95 | 92 |
+| `02_frontend_nouran.pdf` | accepted | Frontend Developer | 5 | 95 | 92 |
+| `03_backend_youssef.docx` | accepted | Backend Developer | 5 | 95 | 92 |
+| `04_civil_engineer_hassan.pdf` | accepted | Civil Engineer | 8 | 100 | 92 |
+| `05_ml_engineer_salma.docx` | accepted | Machine Learning Engineer | 5 | 95 | 90 |
+| `06_uiux_designer_laila.pdf` | accepted | UI/UX Designer | 5 | 95 | 92 |
+| `07_ai_generated_data_scientist.pdf` | **rejected** ai_generated | Data Scientist | **98** | 95 | 20 |
+| `08_ai_generated_fullstack_template.docx` | **rejected** ai_generated | Full Stack Developer | **100** | 95 | 0 |
+| `09_cover_letter.pdf` | **rejected** not_a_cv | Data Analyst | 12 | 90 | 25 |
+| `10_certificate.txt` | **rejected** not_a_cv | Undetermined | 0 | 0 | 0 |
+| `11_job_posting.txt` | **rejected** not_a_cv | Undetermined | 0 | 0 | 0 |
+| `12_too_short.txt` | **rejected** insufficient_content | Undetermined | 5 | 0 | 5 |
+| `13_ambiguous_role.pdf` | accepted | Software Engineer | 5 | **75** | 68 |
+
+The numbers that matter:
+
+- **The six human CVs scored 5–8** against a threshold of 70. That is the separation
+  you want: a wide margin, not a near miss.
+- **The two AI CVs scored 98 and 100.** The gap between the two groups is ~90 points.
+- **`13` came back at confidence 75**, visibly below the 95 the focused CVs got — the
+  model did register that the candidate is unfocused, which is the point of that sample.
+
+Read that separation as a *sanity check, not a benchmark*. `07` and `08` are
+caricatures, so a 90-point gap here says the plumbing works, not that the detector
+generalises to subtle cases.
 
 ## Reading the results
 

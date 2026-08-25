@@ -6,12 +6,22 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+#: The project directory, so defaults do not depend on where you launched from.
+#: `streamlit run app.py` from your home folder used to scatter data/ there.
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 try:  # optional, only to load a local .env during development
     from dotenv import load_dotenv
 
-    load_dotenv()
+    load_dotenv(PROJECT_ROOT / ".env")
 except Exception:  # pragma: no cover - dotenv is optional
     pass
+
+
+def _project_path(value: str) -> Path:
+    """Resolve a default path against the project root; absolutes pass through."""
+    path = Path(value)
+    return path if path.is_absolute() else PROJECT_ROOT / path
 
 
 # --------------------------------------------------------------------------
@@ -89,18 +99,22 @@ PROVIDER_NAMES: list[str] = ["gemini", "claude"]
 
 #: Model used when ATS_MODEL is not set.
 DEFAULT_MODELS: dict[str, str] = {
-    "gemini": "gemini-2.5-flash",
+    "gemini": "gemini-3.6-flash",
     "claude": "claude-opus-5",
     "anthropic": "claude-opus-5",
 }
 
 #: Models offered in the UI, best first.
 PROVIDER_MODELS: dict[str, list[str]] = {
+    # Google closes older models to new API keys, so a hardcoded version goes
+    # stale and 404s. The `-latest` aliases track whatever is current; pin a
+    # numbered model only when you need reproducibility across months.
     "gemini": [
-        "gemini-2.5-flash",
-        "gemini-2.5-pro",
-        "gemini-2.0-flash",
-        "gemini-2.5-flash-lite",
+        "gemini-3.6-flash",          # verified working, ~10s per CV
+        "gemini-3.5-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-flash-latest",       # alias; has been returning 504 at times
+        "gemini-pro-latest",
     ],
     "claude": ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"],
 }
@@ -142,10 +156,10 @@ class Settings:
 
     # --- Paths ---
     inbox_dir: Path = field(
-        default_factory=lambda: Path(os.getenv("ATS_INBOX", "data/inbox"))
+        default_factory=lambda: _project_path(os.getenv("ATS_INBOX", "data/inbox"))
     )
     output_dir: Path = field(
-        default_factory=lambda: Path(os.getenv("ATS_OUTPUT", "data/output"))
+        default_factory=lambda: _project_path(os.getenv("ATS_OUTPUT", "data/output"))
     )
 
     # --- Behaviour ---
