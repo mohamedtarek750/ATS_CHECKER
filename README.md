@@ -144,6 +144,17 @@ fails once with a clear message instead of turning a batch of 200 CVs into 200
 failure records. The CLI exits `2` for a blocked run and `3` when some files ended
 up unscreened.
 
+Account-level failures that would hit every CV identically — no credits, a rejected
+key, a model the account cannot use — raise `FatalScreeningError` and **stop the
+whole run on the first one**. The remaining files are marked unscreened without
+spending an API call each.
+
+To retry after fixing the cause, just point the input at the holding folder:
+
+```bash
+python ats_cli.py --input data/output/_unscreened
+```
+
 ---
 
 ## Tuning

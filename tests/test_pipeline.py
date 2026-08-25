@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT))
 
 from ats import pipeline  # noqa: E402
 from ats.config import Settings  # noqa: E402
-from ats.classifier import ClassificationError  # noqa: E402
+from ats.classifier import ClassificationError, FatalScreeningError  # noqa: E402
 from ats.decision import decide, slugify  # noqa: E402
 from ats.extract import extract  # noqa: E402
 from ats.schema import Verdict  # noqa: E402
@@ -280,6 +280,42 @@ def test_api_failure_is_not_a_rejection():
         assert stats["errors"] == 1
         assert stats["rejected"] == 0
         assert stats["rejected_by_reason"] == {}
+    finally:
+        pipeline.classify = original
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_fatal_error_stops_the_whole_batch():
+    """No credits fails identically for every CV - do not call the API 4 times."""
+    calls = []
+
+    def failing_classify(doc, settings):
+        calls.append(doc.path.name)
+        raise FatalScreeningError("Your Anthropic account has no credits.")
+
+    original = pipeline.classify
+    pipeline.classify = failing_classify
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        inbox = tmp / "inbox"
+        inbox.mkdir()
+        for index in range(6):
+            shutil.copy2(FIXTURES / "sample_human_cv.pdf", inbox / f"cv{index}.pdf")
+
+        settings = Settings()
+        settings.inbox_dir = inbox
+        settings.output_dir = tmp / "out"
+        settings.max_workers = 1  # deterministic: the first call trips the abort
+
+        results = pipeline.screen_many(pipeline.discover(inbox), settings)
+
+        assert len(results) == 6
+        assert len(calls) == 1, f"expected one API call, got {len(calls)}"
+        assert all(r.errored for r in results)
+        assert all(not r.accepted for r in results)
+        assert pipeline.summarize(results)["rejected"] == 0
+        # every file is still accounted for on disk
+        assert len(list(settings.unscreened_dir.iterdir())) == 6
     finally:
         pipeline.classify = original
         shutil.rmtree(tmp, ignore_errors=True)

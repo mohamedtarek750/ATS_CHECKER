@@ -28,6 +28,36 @@ class ClassificationError(RuntimeError):
     """Raised when Claude could not produce a verdict for a document."""
 
 
+class FatalScreeningError(ClassificationError):
+    """An account-level failure that will hit every CV in the batch identically.
+
+    No credits, a bad key, a model the account cannot use. Retrying the remaining
+    files just burns time, so the pipeline stops the whole run on this.
+    """
+
+
+# Substrings that identify an account-level problem inside a 400. The API returns
+# these as invalid_request_error, which is otherwise a per-request failure.
+_FATAL_400_MARKERS = (
+    "credit balance is too low",
+    "billing",
+    "quota",
+)
+
+
+def _as_screening_error(exc: anthropic.APIStatusError) -> ClassificationError:
+    """Turn an API status error into a fatal or per-file error with clear advice."""
+    message = str(exc)
+    lowered = message.lower()
+
+    if any(marker in lowered for marker in _FATAL_400_MARKERS):
+        return FatalScreeningError(
+            "Your Anthropic account has no credits, so no CV can be screened. "
+            "Add credits at console.anthropic.com -> Plans & Billing, then run again."
+        )
+    return ClassificationError(f"API error {exc.status_code}: {message}")
+
+
 def has_credentials() -> bool:
     """True when the SDK will find something to authenticate with."""
     return bool(os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN"))
@@ -121,23 +151,32 @@ def classify(doc: ExtractedDoc, settings: Settings) -> Verdict:
                     betas=["server-side-fallback-2026-07-01"],
                     fallbacks="default",
                 )
-            except (anthropic.BadRequestError, TypeError):
-                # Beta not available on this account - stop trying for this process.
+            except (anthropic.BadRequestError, TypeError) as exc:
+                # Only a beta-related 400 means "retry without it". Anything else
+                # (no credits, malformed request) must not be masked as one.
+                if isinstance(exc, anthropic.BadRequestError) and not any(
+                    marker in str(exc).lower() for marker in ("beta", "fallback")
+                ):
+                    raise
                 _use_fallbacks = False
                 response = client.messages.parse(**kwargs)
         else:
             response = client.messages.parse(**kwargs)
 
     except anthropic.AuthenticationError as exc:
-        raise ClassificationError(f"Authentication failed: {exc}") from exc
+        raise FatalScreeningError(
+            f"Authentication failed - check ANTHROPIC_API_KEY in your .env: {exc}"
+        ) from exc
+    except anthropic.PermissionDeniedError as exc:
+        raise FatalScreeningError(f"This API key is not permitted to do that: {exc}") from exc
     except anthropic.NotFoundError as exc:
-        raise ClassificationError(
+        raise FatalScreeningError(
             f"Model '{settings.model}' is not available to this account: {exc}"
         ) from exc
     except anthropic.RateLimitError as exc:
         raise ClassificationError(f"Rate limited after retries: {exc}") from exc
     except anthropic.APIStatusError as exc:
-        raise ClassificationError(f"API error {exc.status_code}: {exc}") from exc
+        raise _as_screening_error(exc) from exc
     except anthropic.APIConnectionError as exc:
         raise ClassificationError(f"Could not reach the Anthropic API: {exc}") from exc
 

@@ -12,7 +12,12 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from .classifier import ClassificationError, classify, has_credentials
+from .classifier import (
+    ClassificationError,
+    FatalScreeningError,
+    classify,
+    has_credentials,
+)
 from .config import SUPPORTED_EXTENSIONS, Settings
 from .decision import Decision, decide, rejection_for_broken_file, screening_failure
 from .extract import extract
@@ -20,6 +25,27 @@ from .router import prepare_tree, route
 from .schema import Verdict
 
 _route_lock = threading.Lock()
+
+
+@dataclass
+class Abort:
+    """Shared stop signal for one run.
+
+    Set by the first worker that hits an account-level failure. Every other CV in
+    the batch would fail identically, so they are marked unscreened without
+    spending another API call.
+    """
+
+    event: threading.Event = field(default_factory=threading.Event)
+    reason: str = ""
+
+    def trip(self, reason: str) -> None:
+        self.reason = reason
+        self.event.set()
+
+    @property
+    def tripped(self) -> bool:
+        return self.event.is_set()
 
 
 @dataclass
@@ -121,9 +147,23 @@ def discover(inbox: Path) -> list[Path]:
     )
 
 
-def screen_one(path: Path, settings: Settings) -> ScreenResult:
+def screen_one(
+    path: Path, settings: Settings, abort: Abort | None = None
+) -> ScreenResult:
     """Full screening of a single file. Never raises."""
     started = time.perf_counter()
+
+    if abort is not None and abort.tripped:
+        decision = screening_failure(f"Run stopped before this file. {abort.reason}")
+        result = _result_from(path, decision, None, 0.0, abort.reason)
+        if not settings.dry_run:
+            with _route_lock:
+                try:
+                    result.destination = str(route(path, decision, settings))
+                except OSError:
+                    pass
+        return result
+
     doc = extract(path)
 
     if doc.error:
@@ -140,6 +180,8 @@ def screen_one(path: Path, settings: Settings) -> ScreenResult:
             verdict = None
             decision = screening_failure(str(exc))
             error = str(exc)
+            if isinstance(exc, FatalScreeningError) and abort is not None:
+                abort.trip(str(exc))
 
     result = _result_from(path, decision, verdict, time.perf_counter() - started, error)
 
@@ -181,9 +223,10 @@ def screen_many(
     if total == 0:
         return results
 
+    abort = Abort()
     workers = max(1, min(settings.max_workers, total))
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(screen_one, p, settings): p for p in paths}
+        futures = {pool.submit(screen_one, p, settings, abort): p for p in paths}
         for done, future in enumerate(as_completed(futures), start=1):
             result = future.result()
             results.append(result)
