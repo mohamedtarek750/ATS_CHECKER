@@ -1,0 +1,108 @@
+{
+  "_readme": [
+    "Ground truth for the accuracy harness. Each entry is what a careful human",
+    "reviewer says the answer is. `role` may list several acceptable answers.",
+    "",
+    "ADD YOUR OWN CVs HERE. The synthetic samples prove the plumbing works; only",
+    "CVs from your real intake, labelled by someone who knows the answer, tell you",
+    "whether the system is accurate on YOUR applicants. Aim for 30+ entries with a",
+    "realistic mix, including CVs you know were AI-written.",
+    "",
+    "Fields: status = accepted|rejected, reason = none|not_a_cv|ai_generated|",
+    "unreadable|insufficient_content, role = list of acceptable role_family values,",
+    "human_written = true|false|null (null = do not score AI detection on this one)."
+  ],
+  "cases": [
+    {
+      "file": "samples/01_data_analyst_omar.pdf",
+      "status": "accepted",
+      "reason": "none",
+      "role": ["Data Analyst", "Business Intelligence Analyst"],
+      "human_written": true
+    },
+    {
+      "file": "samples/02_frontend_nouran.pdf",
+      "status": "accepted",
+      "reason": "none",
+      "role": ["Frontend Developer"],
+      "human_written": true
+    },
+    {
+      "file": "samples/03_backend_youssef.docx",
+      "status": "accepted",
+      "reason": "none",
+      "role": ["Backend Developer", "Software Engineer"],
+      "human_written": true
+    },
+    {
+      "file": "samples/04_civil_engineer_hassan.pdf",
+      "status": "accepted",
+      "reason": "none",
+      "role": ["Civil Engineer"],
+      "human_written": true
+    },
+    {
+      "file": "samples/05_ml_engineer_salma.docx",
+      "status": "accepted",
+      "reason": "none",
+      "role": ["Machine Learning Engineer", "AI Engineer", "Data Scientist"],
+      "human_written": true
+    },
+    {
+      "file": "samples/06_uiux_designer_laila.pdf",
+      "status": "accepted",
+      "reason": "none",
+      "role": ["UI/UX Designer", "Product Manager"],
+      "human_written": true
+    },
+    {
+      "file": "samples/07_ai_generated_data_scientist.pdf",
+      "status": "rejected",
+      "reason": "ai_generated",
+      "role": ["Data Scientist"],
+      "human_written": false
+    },
+    {
+      "file": "samples/08_ai_generated_fullstack_template.docx",
+      "status": "rejected",
+      "reason": "ai_generated",
+      "role": ["Full Stack Developer", "Software Engineer"],
+      "human_written": false
+    },
+    {
+      "file": "samples/09_cover_letter.pdf",
+      "status": "rejected",
+      "reason": "not_a_cv",
+      "role": ["Data Analyst", "Undetermined"],
+      "human_written": null
+    },
+    {
+      "file": "samples/10_certificate.txt",
+      "status": "rejected",
+      "reason": "not_a_cv",
+      "role": ["Undetermined"],
+      "human_written": null
+    },
+    {
+      "file": "samples/11_job_posting.txt",
+      "status": "rejected",
+      "reason": "not_a_cv",
+      "role": ["Undetermined"],
+      "human_written": null
+    },
+    {
+      "file": "samples/12_too_short.txt",
+      "status": "rejected",
+      "reason": "insufficient_content",
+      "role": ["Undetermined"],
+      "human_written": null
+    },
+    {
+      "file": "samples/13_ambiguous_role.pdf",
+      "status": "accepted",
+      "reason": "none",
+      "role": ["Software Engineer", "Full Stack Developer", "Undetermined", "Frontend Developer"],
+      "human_written": true
+    }
+  ]
+}

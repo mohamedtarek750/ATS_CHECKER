@@ -136,6 +136,36 @@ reliable.
 
 ---
 
+## Measuring accuracy
+
+You cannot tell whether a screener is accurate by reading its output — you need
+labelled CVs and a score.
+
+```bash
+python eval/run_eval.py
+```
+
+`eval/labels.json` holds the ground truth: expected decision, reason, and a list of
+acceptable roles per CV. The harness reports decision accuracy, role accuracy, and —
+the number that decides whether this is safe to deploy — the **separation between AI
+scores on human CVs and on AI CVs**. If any genuine CV scores at or above the
+threshold, it says so loudly, because that means real applicants get rejected.
+
+```bash
+python eval/run_eval.py --repeat 3
+```
+
+Screens each CV three times and reports how often the verdict changes. A system that
+answers differently to the same CV is not a screening tool, whatever its average
+accuracy is.
+
+**The bundled 13 samples are not a benchmark.** They prove the pipeline works. To
+know whether it is accurate on *your* applicants, add 30+ CVs from your own intake to
+`eval/labels.json`, labelled by someone who knows the answer — especially real
+AI-written ones, which are far subtler than the two synthetic samples here.
+
+---
+
 ## How a CV is judged
 
 Each file goes through five stages:
