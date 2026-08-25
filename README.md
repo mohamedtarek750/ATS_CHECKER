@@ -32,6 +32,13 @@ lands under `rejected/Frontend_Developers/`.
 pip install -r requirements.txt
 ```
 
+> **Windows, several Pythons installed?** The `streamlit` command belongs to whichever
+> interpreter installed it, which is not always the one `python` resolves to — that
+> mismatch shows up as `ModuleNotFoundError: No module named 'anthropic'` inside the
+> app. Install into the interpreter Streamlit actually runs on, or sidestep it with
+> `python -m streamlit run app.py`. To see which one that is:
+> `python -c "import sys; print(sys.executable)"` vs `where streamlit`.
+
 Put your key in a `.env` file next to this README (copy `.env.example`):
 
 ```
@@ -70,6 +77,27 @@ python ats_cli.py --input "D:/CVs" --output "D:/screened" --move --threshold 60
 
 Supported inputs: `.pdf`, `.docx`, `.txt`, `.md`, `.rtf`. A scanned PDF with no text
 layer is sent to Claude as a document so it can still be read.
+
+---
+
+## Try it on the sample CVs
+
+13 fictional documents ship with the project — six genuine CVs across different roles,
+two written in an unmistakably LLM register, three that are not CVs at all, and two
+edge cases:
+
+```bash
+python samples/make_samples.py
+```
+
+```bash
+python ats_cli.py --input samples --output data/output --dry-run
+```
+
+`samples/EXPECTED.md` lists the outcome each file should produce and what it is
+testing. Note that the two AI-generated samples are deliberate caricatures — real
+ones are much subtler, so a clean sweep here is not evidence the detector is
+reliable.
 
 ---
 

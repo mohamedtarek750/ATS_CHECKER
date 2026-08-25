@@ -1,0 +1,132 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 5 0 R >>
+endobj
+2 0 obj
+<< /Type /Page /Parent 5 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 3 0 R >>
+endobj
+3 0 obj
+<< /Length 2015 >>
+stream
+BT
+/F1 9 Tf
+1 0 0 1 52 790 Tm
+13 TL
+/F1 15 Tf
+(NOURAN K. SAAD) Tj
+T*
+/F1 9 Tf
+(Alexandria, Egypt | +20 106 774 3311 | nouran.saad.dev@example.com) Tj
+T*
+/F1 9 Tf
+(github.com/nouran-saad | nouransaad.dev) Tj
+T*
+/F1 9 Tf
+() Tj
+T*
+/F1 10 Tf
+(ABOUT) Tj
+T*
+/F1 9 Tf
+(Front-end developer, 4 years. React and TypeScript mostly. I care a lot about) Tj
+T*
+/F1 9 Tf
+(accessibility and I am the person on the team who actually runs the screen reader.) Tj
+T*
+/F1 9 Tf
+() Tj
+T*
+/F1 10 Tf
+(WORK) Tj
+T*
+/F1 9 Tf
+(Front-end Developer - Bokra Technologies \(Jan 2023 - Present\)) Tj
+T*
+/F1 9 Tf
+(- Main developer on the customer portal. React 18, TypeScript, Vite, TanStack Query.) Tj
+T*
+/F1 9 Tf
+(- Took the Lighthouse performance score from 42 to 89, mostly route-level code splitting) Tj
+T*
+/F1 9 Tf
+(  and killing a 400kb date library we used in two places.) Tj
+T*
+/F1 9 Tf
+(- Migrated the component library from styled-components to Tailwind over about 4 months.) Tj
+T*
+/F1 9 Tf
+(  Still three legacy screens left, honestly.) Tj
+T*
+/F1 9 Tf
+(- Set up the a11y lint rules and fixed roughly 200 violations. Got the portal through) Tj
+T*
+/F1 9 Tf
+(  the client's WCAG AA audit.) Tj
+T*
+/F1 9 Tf
+() Tj
+T*
+/F1 9 Tf
+(Front-end Developer - Freelance \(Jun 2021 - Dec 2022\)) Tj
+T*
+/F1 9 Tf
+(- Built and maintained six small business sites. Next.js and WordPress headless.) Tj
+T*
+/F1 9 Tf
+(- One e-commerce front-end for a local furniture shop, integrated with their existing) Tj
+T*
+/F1 9 Tf
+(  PHP backend which was... an experience.) Tj
+T*
+/F1 9 Tf
+() Tj
+T*
+/F1 10 Tf
+(EDUCATION) Tj
+T*
+/F1 9 Tf
+(BSc Computer Science - Alexandria University, 2021) Tj
+T*
+/F1 9 Tf
+() Tj
+T*
+/F1 10 Tf
+(SKILLS) Tj
+T*
+/F1 9 Tf
+(React, TypeScript, JavaScript \(ES2022\), Next.js, Tailwind CSS, HTML, CSS,) Tj
+T*
+/F1 9 Tf
+(TanStack Query, Zustand, Vitest, Playwright, Figma handoff, Git, basic Node.js) Tj
+T*
+/F1 9 Tf
+() Tj
+T*
+/F1 10 Tf
+(THINGS I HAVE WRITTEN) Tj
+T*
+/F1 9 Tf
+("Why your focus ring matters" - talk at Alex Frontend Meetup, Nov 2024) Tj
+T*
+ET
+endstream
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Type /Pages /Kids [2 0 R] /Count 1 >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000184 00000 n 
+0000002251 00000 n 
+0000002321 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+2378
+%%EOF

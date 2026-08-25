@@ -1,0 +1,150 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 5 0 R >>
+endobj
+2 0 obj
+<< /Type /Page /Parent 5 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 3 0 R >>
+endobj
+3 0 obj
+<< /Length 2357 >>
+stream
+BT
+/F1 9 Tf
+1 0 0 1 52 790 Tm
+13 TL
+/F1 15 Tf
+(OMAR H. ABDELRAHMAN) Tj
+T*
+/F1 9 Tf
+(Giza, Egypt | +20 111 222 0198 | omar.abdelrahman.data@example.com | linkedin.com/in/omar-abd-data) Tj
+T*
+/F1 9 Tf
+() Tj
+T*
+/F1 10 Tf
+(SUMMARY) Tj
+T*
+/F1 9 Tf
+(Data analyst, 3 years in retail and FMCG reporting. Most of my day is SQL and Power BI.) Tj
+T*
+/F1 9 Tf
+(Comfortable owning a dashboard end to end, from pulling the data to arguing with the) Tj
+T*
+/F1 9 Tf
+(commercial team about what the number actually means.) Tj
+T*
+/F1 9 Tf
+() Tj
+T*
+/F1 10 Tf
+(EXPERIENCE) Tj
+T*
+/F1 9 Tf
+(Data Analyst - Alameda Retail Group \(Mar 2024 - Present\)) Tj
+T*
+/F1 9 Tf
+(- Own the weekly commercial pack: 11 dashboards, ~40 internal users.) Tj
+T*
+/F1 9 Tf
+(- Rewrote the stock-cover query that used to time out. Went from 6 minutes to 40 seconds,) Tj
+T*
+/F1 9 Tf
+(  mostly by fixing a join that was fanning out on returns.) Tj
+T*
+/F1 9 Tf
+(- Built the promo post-mortem template the category managers now use.) Tj
+T*
+/F1 9 Tf
+(- Train new joiners on the warehouse schema. Nobody documented it before me.) Tj
+T*
+/F1 9 Tf
+() Tj
+T*
+/F1 9 Tf
+(Junior Data Analyst - Cairo Foods \(Sep 2022 - Feb 2024\)) Tj
+T*
+/F1 9 Tf
+(- Daily and monthly sales reporting in Excel, then moved most of it to Power BI.) Tj
+T*
+/F1 9 Tf
+(- Cleaned the customer master. About 12,000 duplicate records from three legacy systems.) Tj
+T*
+/F1 9 Tf
+(- Supported the finance close with ad-hoc extracts.) Tj
+T*
+/F1 9 Tf
+() Tj
+T*
+/F1 9 Tf
+(Intern - Cairo Foods \(Jul 2022 - Aug 2022\)) Tj
+T*
+/F1 9 Tf
+(- Data entry and validation for the supplier catalogue.) Tj
+T*
+/F1 9 Tf
+() Tj
+T*
+/F1 10 Tf
+(EDUCATION) Tj
+T*
+/F1 9 Tf
+(BSc Statistics - Cairo University, 2022. Graduation project on demand forecasting for) Tj
+T*
+/F1 9 Tf
+(a small bakery chain, using SARIMA. Grade: Very Good.) Tj
+T*
+/F1 9 Tf
+() Tj
+T*
+/F1 10 Tf
+(SKILLS) Tj
+T*
+/F1 9 Tf
+(SQL \(advanced - window functions, CTEs, query tuning\), Power BI / DAX, Excel \(Power Query\),) Tj
+T*
+/F1 9 Tf
+(Python \(pandas, matplotlib - intermediate\), Git basics, some Airflow exposure.) Tj
+T*
+/F1 9 Tf
+() Tj
+T*
+/F1 10 Tf
+(CERTIFICATIONS) Tj
+T*
+/F1 9 Tf
+(Microsoft PL-300 Power BI Data Analyst \(2024\)) Tj
+T*
+/F1 9 Tf
+(Google Data Analytics Certificate \(2023\)) Tj
+T*
+/F1 9 Tf
+() Tj
+T*
+/F1 10 Tf
+(LANGUAGES) Tj
+T*
+/F1 9 Tf
+(Arabic \(native\), English \(fluent\)) Tj
+T*
+ET
+endstream
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Type /Pages /Kids [2 0 R] /Count 1 >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000184 00000 n 
+0000002593 00000 n 
+0000002663 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+2720
+%%EOF

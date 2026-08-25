@@ -1,0 +1,29 @@
+JOB POSTING - Senior Front-End Developer
+
+Department: Digital Services
+Location: New Administrative Capital (on-site, 5 days)
+Employment type: Full time, permanent
+Posted: 18 August 2026
+Closes: 15 September 2026
+
+ABOUT THE ROLE
+We are looking for a Senior Front-End Developer to join the Digital Services team working
+on citizen-facing portals for the new capital.
+
+RESPONSIBILITIES
+- Build and maintain React applications used by hundreds of thousands of residents.
+- Own front-end architecture decisions and mentor two mid-level developers.
+- Work with the design system team to keep the component library consistent.
+- Ensure WCAG 2.1 AA compliance across all delivered screens.
+
+REQUIREMENTS
+- 5+ years of professional front-end experience.
+- Deep React and TypeScript knowledge.
+- Experience with RTL / Arabic layouts is strongly preferred.
+- Bachelor degree in Computer Science or equivalent practical experience.
+
+WHAT WE OFFER
+Competitive salary, medical insurance for you and dependents, transport allowance,
+and an annual training budget.
+
+To apply, send your CV to careers@example-acud.eg quoting reference FE-2026-114.
