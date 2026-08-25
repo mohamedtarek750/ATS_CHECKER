@@ -9,7 +9,8 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from ats.config import ROLE_TAXONOMY, Settings
+from ats.config import PROVIDER_MODELS, PROVIDER_NAMES, ROLE_TAXONOMY, Settings
+from ats.classifier import credentials_message, has_credentials
 from ats.pipeline import (
     CSV_COLUMNS,
     discover,
@@ -35,24 +36,46 @@ REASON_LABELS = {
 # --------------------------------------------------------------------------
 # Sidebar - configuration
 # --------------------------------------------------------------------------
+PROVIDER_LABELS = {
+    "gemini": "Google Gemini (free tier)",
+    "claude": "Anthropic Claude (paid)",
+}
+KEY_ENV = {"gemini": "GEMINI_API_KEY", "claude": "ANTHROPIC_API_KEY"}
+
+
 def sidebar_settings() -> Settings:
-    settings = Settings()
     st.sidebar.header("Settings")
 
-    if os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN"):
-        st.sidebar.success("Anthropic credentials detected")
+    provider = st.sidebar.selectbox(
+        "Provider",
+        PROVIDER_NAMES,
+        format_func=lambda name: PROVIDER_LABELS.get(name, name),
+        help="Gemini is free; Claude is paid and stronger at spotting AI-written CVs.",
+    )
+    # Set before constructing Settings so the model and worker defaults follow.
+    os.environ["ATS_PROVIDER"] = provider
+    settings = Settings()
+
+    if has_credentials(settings):
+        st.sidebar.success(f"{KEY_ENV[provider]} detected")
     else:
-        st.sidebar.error("ANTHROPIC_API_KEY is not set")
-        key = st.sidebar.text_input("Paste an API key for this session", type="password")
+        st.sidebar.error(credentials_message(settings))
+        key = st.sidebar.text_input(
+            f"Paste a {KEY_ENV[provider]} for this session", type="password"
+        )
         if key:
-            os.environ["ANTHROPIC_API_KEY"] = key
-            st.sidebar.info("Key set for this session only.")
+            os.environ[KEY_ENV[provider]] = key
+            st.sidebar.info("Key set for this session only. Put it in .env to keep it.")
+            st.rerun()
+
+    if provider == "gemini":
+        st.sidebar.caption(
+            "Google's free tier may use submitted content to improve their models. "
+            "Consider that before screening real applicants."
+        )
 
     settings.model = st.sidebar.selectbox(
-        "Model",
-        ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"],
-        index=0,
-        help="Opus 5 gives the most reliable AI-generation judgements.",
+        "Model", PROVIDER_MODELS[provider], index=0
     )
     settings.ai_threshold = st.sidebar.slider(
         "Reject when AI score is at least",

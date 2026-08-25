@@ -322,18 +322,34 @@ def test_fatal_error_stops_the_whole_batch():
 
 
 def test_preflight_blocks_a_run_without_credentials():
+    """Each provider must check its own key, not another provider's."""
     import os
 
-    saved = os.environ.pop("ANTHROPIC_API_KEY", None), os.environ.pop(
-        "ANTHROPIC_AUTH_TOKEN", None
-    )
+    saved = {
+        name: os.environ.pop(name, None)
+        for name in ("ATS_PROVIDER", "GEMINI_API_KEY", "GOOGLE_API_KEY",
+                     "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
+    }
     try:
-        assert "credentials" in pipeline.preflight(Settings())
+        gemini = Settings()
+        gemini.provider = "gemini"
+        assert "Gemini" in pipeline.preflight(gemini)
+
+        claude = Settings()
+        claude.provider = "claude"
+        assert "ANTHROPIC_API_KEY" in pipeline.preflight(claude)
+
+        # A Claude key must not unlock a Gemini run.
         os.environ["ANTHROPIC_API_KEY"] = "sk-ant-test"
-        assert pipeline.preflight(Settings()) == ""
+        assert pipeline.preflight(claude) == ""
+        assert "Gemini" in pipeline.preflight(gemini)
+
+        os.environ["GEMINI_API_KEY"] = "AIza-test"
+        assert pipeline.preflight(gemini) == ""
     finally:
-        os.environ.pop("ANTHROPIC_API_KEY", None)
-        for name, value in zip(("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"), saved):
+        for name in ("GEMINI_API_KEY", "ANTHROPIC_API_KEY"):
+            os.environ.pop(name, None)
+        for name, value in saved.items():
             if value is not None:
                 os.environ[name] = value
 

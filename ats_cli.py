@@ -7,10 +7,11 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
-from ats.config import ROLE_TAXONOMY, Settings
+from ats.config import PROVIDER_NAMES, ROLE_TAXONOMY, Settings
 from ats.pipeline import discover, preflight, screen_many, summarize, write_reports
 from ats.router import prepare_tree
 
@@ -22,7 +23,7 @@ if hasattr(sys.stdout, "reconfigure"):
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ats_cli",
-        description="Screen CVs with Claude and file them by role into accepted/rejected.",
+        description="Screen CVs with an LLM and file them by role into accepted/rejected.",
     )
     parser.add_argument("-i", "--input", default=None, help="Folder (or single file) of CVs.")
     parser.add_argument("-o", "--output", default=None, help="Where accepted/ and rejected/ go.")
@@ -33,7 +34,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="AI score (0-100) at or above which a CV is rejected. Default 70.",
     )
     parser.add_argument("--workers", type=int, default=None, help="Parallel screenings.")
-    parser.add_argument("--model", default=None, help="Claude model id.")
+    parser.add_argument(
+        "--provider", default=None, choices=PROVIDER_NAMES,
+        help="LLM backend. 'gemini' has a free tier; 'claude' is paid.",
+    )
+    parser.add_argument("--model", default=None, help="Model id for the provider.")
     parser.add_argument(
         "--scaffold", action="store_true",
         help="Pre-create an empty folder for every role in the taxonomy.",
@@ -42,6 +47,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def make_settings(args: argparse.Namespace) -> Settings:
+    # Set the provider before constructing Settings so the model and worker count
+    # resolve to that provider's defaults.
+    if args.provider:
+        os.environ["ATS_PROVIDER"] = args.provider
     settings = Settings()
     if args.input:
         settings.inbox_dir = Path(args.input)
@@ -77,8 +86,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Cannot start: {problem}")
         return 2
 
-    print(f"Screening {len(paths)} file(s) with {settings.model} "
-          f"(AI-reject threshold {settings.ai_threshold})\n")
+    print(
+        f"Screening {len(paths)} file(s) with {settings.model} "
+        f"[{settings.provider}], AI-reject threshold {settings.ai_threshold}\n"
+    )
 
     def on_progress(result, done: int, total: int) -> None:
         mark = "FAIL" if result.errored else "PASS" if result.accepted else "DROP"
@@ -114,8 +125,13 @@ def main(argv: list[str] | None = None) -> int:
         )
         if not settings.dry_run:
             print(f"They are held in {settings.unscreened_dir}. Re-run them.")
-        for result in unscreened[:10]:
-            print(f"    {result.filename}: {result.error}")
+
+        # One cause usually explains the whole batch. Say it once, not N times.
+        causes: dict[str, int] = {}
+        for result in unscreened:
+            causes[result.error] = causes.get(result.error, 0) + 1
+        for cause, count in sorted(causes.items(), key=lambda kv: -kv[1]):
+            print(f"\n  [{count} file(s)] {cause}")
         return 3
     return 0
 

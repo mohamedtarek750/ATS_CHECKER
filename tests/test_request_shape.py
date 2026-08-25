@@ -10,6 +10,7 @@ Run: python tests/test_request_shape.py
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -20,9 +21,9 @@ sys.path.insert(0, str(ROOT))
 
 import anthropic  # noqa: E402
 
-from ats import classifier  # noqa: E402
 from ats.config import Settings  # noqa: E402
 from ats.extract import extract  # noqa: E402
+from ats.providers import get_provider  # noqa: E402
 
 FIXTURES = ROOT / "tests" / "fixtures"
 
@@ -72,15 +73,18 @@ def handler(request: httpx2.Request) -> httpx2.Response:
 
 
 def main() -> int:
-    classifier._client = anthropic.Anthropic(
+    os.environ["ATS_PROVIDER"] = "claude"
+    provider = get_provider("claude")
+    provider._client = anthropic.Anthropic(
         api_key="sk-ant-test-not-a-real-key",
         http_client=httpx2.Client(transport=httpx2.MockTransport(handler)),
     )
     # The mock transport cannot negotiate the fallback beta; exercise the plain path.
-    classifier._use_fallbacks = False
+    provider._use_fallbacks = False
 
+    settings = Settings()
     doc = extract(FIXTURES / "sample_human_cv.pdf")
-    verdict = classifier.classify(doc, Settings())
+    verdict = provider.screen(doc, settings)
 
     body = CAPTURED["body"]
     checks = [

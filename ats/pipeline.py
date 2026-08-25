@@ -16,6 +16,7 @@ from .classifier import (
     ClassificationError,
     FatalScreeningError,
     classify,
+    credentials_message,
     has_credentials,
 )
 from .config import SUPPORTED_EXTENSIONS, Settings
@@ -126,11 +127,8 @@ def preflight(settings: Settings) -> str:
     Checked before screening so a missing key fails once, loudly, instead of
     turning every CV in the batch into a failure record.
     """
-    if not has_credentials():
-        return (
-            "No Anthropic credentials found. Set ANTHROPIC_API_KEY in your "
-            "environment or in a .env file next to this project, then run again."
-        )
+    if not has_credentials(settings):
+        return credentials_message(settings)
     return ""
 
 

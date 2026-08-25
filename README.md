@@ -1,8 +1,11 @@
 # ACUD ATS Checker
 
-An Applicant Tracking System that reads every incoming CV with Claude, works out
+An Applicant Tracking System that reads every incoming CV with an LLM, works out
 **which role the candidate is applying for**, rejects anything that is not a real
 human-written CV, and files each file into a folder named after its role.
+
+Runs on **Google Gemini's free tier** by default, or on Anthropic Claude if you
+have credits. Only `ats/providers/` knows which — everything else is shared.
 
 ```
 data/output/
@@ -40,11 +43,34 @@ pip install -r requirements.txt
 > `python -m streamlit run app.py`. To see which one that is:
 > `python -c "import sys; print(sys.executable)"` vs `where streamlit`.
 
-Put your key in a `.env` file next to this README (copy `.env.example`):
+### Get a key
+
+**Free (default) — Google Gemini.** Go to **aistudio.google.com/apikey**, sign in
+with a Google account, **Create API key**. No card, no billing setup.
+
+Copy `.env.example` to `.env` and fill it in:
 
 ```
+ATS_PROVIDER=gemini
+GEMINI_API_KEY=AIza...
+```
+
+**Paid — Anthropic Claude.** A key from console.anthropic.com plus credits on the
+account. Stronger at the AI-generation judgement, which is the hardest call the
+system makes.
+
+```
+ATS_PROVIDER=claude
 ANTHROPIC_API_KEY=sk-ant-...
 ```
+
+Switch any time with `--provider gemini|claude`, the sidebar dropdown, or
+`ATS_PROVIDER` in `.env`.
+
+> **Before you point the free tier at real applicants:** Google's free tier may use
+> submitted content to improve their models. Real CVs are other people's personal
+> data, and that is a decision to make deliberately, not by default. Use the samples
+> below to develop and calibrate, and a paid tier (either vendor) for live intake.
 
 ### Web UI
 
@@ -72,8 +98,9 @@ python ats_cli.py --input "D:/CVs" --output "D:/screened" --move --threshold 60
 | `--move` | Move originals instead of copying them. |
 | `--dry-run` | Screen and report, but file nothing. |
 | `--threshold N` | Reject at AI score ≥ N (default 70). |
-| `--workers N` | Parallel screenings (default 4). |
-| `--model` | Claude model id (default `claude-opus-5`). |
+| `--workers N` | Parallel screenings (default 2 on Gemini, 4 on Claude). |
+| `--provider` | `gemini` (free) or `claude` (paid). |
+| `--model` | Model id. Blank uses the provider's default. |
 | `--scaffold` | Pre-create an empty folder for every role in the taxonomy. |
 
 Supported inputs: `.pdf`, `.docx`, `.txt`, `.md`, `.rtf`. A scanned PDF with no text
@@ -164,8 +191,10 @@ sidebar:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `ATS_MODEL` | `claude-opus-5` | Model used for screening. |
-| `ATS_EFFORT` | `medium` | Reasoning effort: `low`…`max`. |
+| `ATS_PROVIDER` | `gemini` | `gemini` (free) or `claude` (paid). |
+| `ATS_MODEL` | per provider | `gemini-2.5-flash` / `claude-opus-5`. |
+| `ATS_GEMINI_RPM` | `10` | Free-tier requests per minute to stay under. |
+| `ATS_EFFORT` | `medium` | Claude only: reasoning effort `low`…`max`. |
 | `ATS_AI_THRESHOLD` | `70` | AI score at which a CV is rejected. |
 | `ATS_MIN_ROLE_CONFIDENCE` | `40` | Below this → `Undetermined/`. |
 | `ATS_MIN_CHARS` | `250` | Below this → `insufficient_content`. |
@@ -206,10 +235,18 @@ than a bin.
 
 ## Cost
 
-One Claude call per CV. The system prompt (~2k tokens) is cached, so from the second
-CV onward you mostly pay for the CV text itself and a short structured response.
-Switch `ATS_MODEL` to `claude-sonnet-5` or `claude-haiku-4-5` for high-volume runs —
-they are cheaper, and less reliable at the AI-generation judgement specifically.
+One LLM call per CV.
+
+**Gemini free tier** costs nothing. The limits are per-minute and per-day rather
+than per-token, so the pipeline paces itself: `ATS_GEMINI_RPM` (default 10) spaces
+requests out, 429s are retried with backoff, and a spent *daily* quota stops the run
+rather than burning through the rest of the batch. Re-run the held files after the
+quota resets at midnight Pacific.
+
+**Claude** is paid. The system prompt (~2k tokens) is cached, so from the second CV
+onward you mostly pay for the CV text and a short structured response. `claude-sonnet-5`
+and `claude-haiku-4-5` are cheaper, and less reliable at the AI-generation call
+specifically.
 
 ---
 
@@ -226,9 +263,19 @@ full stubbed end-to-end run. No API key needed — Claude is stubbed.
 python tests/test_request_shape.py
 ```
 
-Runs the real SDK against a mock HTTP transport to confirm the request we build is
-well-formed (adaptive thinking, cached system prompt, JSON-schema output, the role
-enum) and that the verdict parses back. Also no API key needed.
+Runs the real Anthropic SDK against a mock HTTP transport to confirm the request we
+build is well-formed (adaptive thinking, cached system prompt, JSON-schema output,
+the role enum) and that the verdict parses back.
+
+```bash
+python tests/test_gemini.py
+```
+
+Confirms the `Verdict` schema survives conversion to Gemini's format with all 36
+role enum values intact, that account-level errors are recognised as fatal while a
+per-minute burst is not, and that the rate limiter really spaces requests out.
+
+None of the three need an API key.
 
 > The offline suites are green. The **live** Claude path has not been exercised in
 > this repository because no API key was available when it was written — run
@@ -245,11 +292,12 @@ PDF if you need to change it. Do not commit real applicants' CVs to this repo �
 
 ```
 ats/
-  config.py      role taxonomy, thresholds, paths
+  config.py      role taxonomy, thresholds, paths, provider defaults
   extract.py     PDF/DOCX/text extraction + file forensics
   prompts.py     the screening prompt: CV standard, AI rubric, role rules
   schema.py      the Verdict model Claude must fill in
-  classifier.py  the Claude call
+  classifier.py  dispatches to the configured provider
+  providers/     base.py (contract + rate limiter), gemini.py, claude.py
   decision.py    accept/reject policy
   router.py      filesystem placement
   pipeline.py    orchestration, concurrency, reporting

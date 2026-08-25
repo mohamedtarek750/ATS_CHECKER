@@ -1,7 +1,11 @@
-anthropic>=1,<2
+# Core - always needed
 pypdf>=5
 python-docx>=1.1
 python-dotenv>=1
 pydantic>=2
 streamlit>=1.36
 pandas>=2
+
+# Providers. Both are imported lazily, so you only need the one you use.
+google-genai>=1.0        # ATS_PROVIDER=gemini  (free tier)
+anthropic>=1,<2          # ATS_PROVIDER=claude  (paid)

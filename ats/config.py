@@ -80,6 +80,35 @@ REJECT_REASONS: list[str] = [
 SCREENING_FAILED = "screening_failed"
 
 
+# --------------------------------------------------------------------------
+# Providers
+# --------------------------------------------------------------------------
+# Declared here rather than in ats.providers so that config stays importable from
+# the provider modules without a circular import.
+PROVIDER_NAMES: list[str] = ["gemini", "claude"]
+
+#: Model used when ATS_MODEL is not set.
+DEFAULT_MODELS: dict[str, str] = {
+    "gemini": "gemini-2.5-flash",
+    "claude": "claude-opus-5",
+    "anthropic": "claude-opus-5",
+}
+
+#: Models offered in the UI, best first.
+PROVIDER_MODELS: dict[str, list[str]] = {
+    "gemini": [
+        "gemini-2.5-flash",
+        "gemini-2.5-pro",
+        "gemini-2.0-flash",
+        "gemini-2.5-flash-lite",
+    ],
+    "claude": ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"],
+}
+
+#: Gemini's free tier is limited per minute, so extra workers just queue.
+DEFAULT_WORKERS: dict[str, int] = {"gemini": 2, "claude": 4, "anthropic": 4}
+
+
 def _env_int(name: str, default: int) -> int:
     try:
         return int(os.getenv(name, str(default)))
@@ -91,8 +120,12 @@ def _env_int(name: str, default: int) -> int:
 class Settings:
     """Runtime settings. Every field can be overridden by an env var."""
 
-    # --- Claude ---
-    model: str = field(default_factory=lambda: os.getenv("ATS_MODEL", "claude-opus-5"))
+    # --- Model ---
+    provider: str = field(
+        default_factory=lambda: os.getenv("ATS_PROVIDER", "gemini").strip().lower()
+    )
+    # Empty means "use the provider's default", resolved in __post_init__.
+    model: str = field(default_factory=lambda: os.getenv("ATS_MODEL", ""))
     effort: str = field(default_factory=lambda: os.getenv("ATS_EFFORT", "medium"))
     max_tokens: int = field(default_factory=lambda: _env_int("ATS_MAX_TOKENS", 8000))
 
@@ -118,9 +151,15 @@ class Settings:
     # --- Behaviour ---
     # "copy" keeps the original in the inbox; "move" empties the inbox.
     file_action: str = field(default_factory=lambda: os.getenv("ATS_FILE_ACTION", "copy"))
-    max_workers: int = field(default_factory=lambda: _env_int("ATS_MAX_WORKERS", 4))
+    max_workers: int = field(default_factory=lambda: _env_int("ATS_MAX_WORKERS", 0))
     # When true, files are screened and reported but never copied or moved.
     dry_run: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.model:
+            self.model = DEFAULT_MODELS.get(self.provider, DEFAULT_MODELS["gemini"])
+        if not self.max_workers:
+            self.max_workers = DEFAULT_WORKERS.get(self.provider, 2)
 
     @property
     def accepted_dir(self) -> Path:
