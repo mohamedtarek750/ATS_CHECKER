@@ -21,6 +21,7 @@ from ats.config import DEFAULT_MODELS, Settings  # noqa: E402
 from ats.providers import get_provider  # noqa: E402
 from ats.providers.base import (  # noqa: E402
     ClassificationError,
+    DailyQuotaExhausted,
     FatalScreeningError,
     RateLimiter,
 )
@@ -70,17 +71,60 @@ def test_no_credits_style_errors_are_fatal():
 def test_daily_quota_is_fatal_but_burst_is_not():
     provider = get_provider("gemini")
 
+    # The real body Google returns. It mentions billing, which used to be matched
+    # first and turned every rate limit into a generic account failure.
     daily = FakeAPIError(
-        "RESOURCE_EXHAUSTED: Quota exceeded for GenerateRequestsPerDayPerProject", 429
+        "429 RESOURCE_EXHAUSTED. You exceeded your current quota, please check your "
+        "plan and billing details. Quota exceeded for metric: "
+        "generate_content_free_tier_requests, limit: 20, model: gemini-3.6-flash. "
+        "quotaId: GenerateRequestsPerDayPerProjectPerModel-FreeTier",
+        429,
     )
-    assert isinstance(provider._classify_error(daily), FatalScreeningError)
+    mapped = provider._classify_error(daily)
+    assert isinstance(mapped, DailyQuotaExhausted), type(mapped)
+    assert "DAILY" in str(mapped), "the message must say the day is spent"
+    assert "gemini-3.6-flash" in str(mapped), "name the model that ran out"
     assert not provider._is_retryable(daily), "a spent day will not recover on retry"
 
-    burst = FakeAPIError("RESOURCE_EXHAUSTED: too many requests per minute", 429)
+    burst = FakeAPIError(
+        "429 RESOURCE_EXHAUSTED. please check your plan and billing details. "
+        "quotaId: GenerateRequestsPerMinutePerProjectPerModel-FreeTier",
+        429,
+    )
     mapped = provider._classify_error(burst)
     assert isinstance(mapped, ClassificationError)
     assert not isinstance(mapped, FatalScreeningError), "a burst is per-file, not fatal"
     assert provider._is_retryable(burst)
+
+
+def test_model_failover_walks_the_list_then_gives_up():
+    """Each model has its own daily quota, so a spent one must not end the run."""
+    from ats.providers.gemini import GeminiProvider
+
+    provider = GeminiProvider()
+    first = provider._resolve_model("gemini-3.6-flash")
+    assert first == "gemini-3.6-flash"
+
+    seen = [first]
+    while True:
+        nxt = provider._retire(seen[-1])
+        if nxt is None:
+            break
+        assert nxt not in seen, "failover must not loop back to a spent model"
+        seen.append(nxt)
+
+    assert seen == list(GeminiProvider.models), seen
+    assert len(provider.switches) == len(GeminiProvider.models) - 1
+    # Once everything is spent, resolving falls back rather than crashing.
+    assert provider._resolve_model("gemini-3.6-flash") == "gemini-3.6-flash"
+
+
+def test_failover_skips_an_already_spent_configured_model():
+    from ats.providers.gemini import GeminiProvider
+
+    provider = GeminiProvider()
+    provider._exhausted.add("gemini-3.6-flash")
+    assert provider._resolve_model("gemini-3.6-flash") == "gemini-3.5-flash"
 
 
 def test_server_errors_retry_and_client_errors_do_not():

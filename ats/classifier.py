@@ -8,7 +8,12 @@ from __future__ import annotations
 
 from .config import Settings
 from .extract import ExtractedDoc
-from .providers import ClassificationError, FatalScreeningError, get_provider
+from .providers import (
+    ClassificationError,
+    DailyQuotaExhausted,
+    FatalScreeningError,
+    get_provider,
+)
 from .schema import Verdict
 
 
@@ -30,6 +35,15 @@ def credentials_message(settings: Settings | None = None) -> str:
         return str(exc).strip("\"'")
 
 
+def active_model(settings: Settings) -> str:
+    """The model actually in use. Failover can move a run onto a different one."""
+    try:
+        provider = get_provider(settings.provider)
+    except KeyError:
+        return settings.model
+    return getattr(provider, "active_model", None) or settings.model
+
+
 def classify(doc: ExtractedDoc, settings: Settings) -> Verdict:
     """Screen one extracted document. Raises ClassificationError on failure."""
     try:
@@ -41,6 +55,8 @@ def classify(doc: ExtractedDoc, settings: Settings) -> Verdict:
 
 __all__ = [
     "ClassificationError",
+    "DailyQuotaExhausted",
+    "active_model",
     "FatalScreeningError",
     "classify",
     "credentials_message",

@@ -15,6 +15,7 @@ from pathlib import Path
 from .classifier import (
     ClassificationError,
     FatalScreeningError,
+    active_model,
     classify,
     credentials_message,
     has_credentials,
@@ -73,6 +74,7 @@ class ScreenResult:
     ai_signals: list[str] = field(default_factory=list)
     human_signals: list[str] = field(default_factory=list)
     explanation: str = ""
+    model_used: str = ""
     error: str = ""
     elapsed_seconds: float = 0.0
 
@@ -163,6 +165,7 @@ def screen_one(
         return result
 
     doc = extract(path)
+    used = ""
 
     if doc.error:
         decision = rejection_for_broken_file(doc, doc.error)
@@ -173,6 +176,9 @@ def screen_one(
             verdict = classify(doc, settings)
             decision = decide(verdict, doc, settings)
             error = ""
+            # Read straight after the call: failover is sticky, so this is the
+            # model that actually produced this verdict.
+            used = active_model(settings)
         except ClassificationError as exc:
             # The CV was never judged. Do not record it as a rejection.
             verdict = None
@@ -182,6 +188,7 @@ def screen_one(
                 abort.trip(str(exc))
 
     result = _result_from(path, decision, verdict, time.perf_counter() - started, error)
+    result.model_used = used
 
     if settings.dry_run:
         result.destination = "(dry run - not filed)"
@@ -253,6 +260,7 @@ CSV_COLUMNS = [
     "format_score",
     "quality_score",
     "explanation",
+    "model_used",
     "destination",
     "error",
 ]

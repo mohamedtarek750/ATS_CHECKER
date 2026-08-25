@@ -31,6 +31,14 @@ class FatalScreeningError(ClassificationError):
     """
 
 
+class DailyQuotaExhausted(FatalScreeningError):
+    """This model's free daily allowance is spent.
+
+    Fatal for the model, not necessarily for the run: providers whose models carry
+    separate quotas can fail over to the next one.
+    """
+
+
 class RateLimiter:
     """Minimum spacing between requests, shared across worker threads.
 
@@ -58,6 +66,9 @@ class Provider(ABC):
     """One LLM backend."""
 
     name: str = "provider"
+    #: Set when failover has moved the run onto a different model.
+    active_model: str | None = None
+
     #: Human-readable models this provider accepts, best first.
     models: tuple[str, ...] = ()
     #: Env var holding the credential, shown in error messages.

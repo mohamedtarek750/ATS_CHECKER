@@ -20,6 +20,7 @@ from .base import (
     MAX_FILE_BYTES,
     MAX_TEXT_CHARS,
     ClassificationError,
+    DailyQuotaExhausted,
     FatalScreeningError,
     Provider,
     RateLimiter,
@@ -31,11 +32,13 @@ DEFAULT_RPM = 10
 MAX_ATTEMPTS = 4
 
 # Substrings that mean "this will fail the same way for every remaining CV".
+# NOTE: "billing" is deliberately NOT here. Google's ordinary 429 body says
+# "please check your plan and billing details", so matching it swallowed every
+# rate-limit as a generic account failure.
 _FATAL_MARKERS = (
     "api key not valid",
     "api_key_invalid",
     "permission_denied",
-    "billing",
     "not supported for",
 )
 
@@ -47,18 +50,25 @@ _BAD_MODEL_MARKERS = (
     "not found for api version",
     "is not supported",
 )
-# A spent daily allowance is fatal; a per-minute burst is not.
+# A spent daily allowance is fatal; a per-minute burst is not. Google names the
+# quota in the error body, e.g. GenerateRequestsPerDayPerProjectPerModel-FreeTier.
 _DAILY_QUOTA_MARKERS = ("perday", "per day", "requests per day", "daily")
+
+# Free-tier daily request caps, for the "you have run out" message. These are small
+# and Google changes them, so treat as a hint, not a contract.
+_KNOWN_DAILY_CAPS = {"gemini-3.6-flash": 20}
 
 
 class GeminiProvider(Provider):
     name = "Google Gemini"
+    # Ordered failover list. Each model carries its OWN free-tier daily quota, so
+    # when one is spent the run continues on the next instead of stopping. All four
+    # were verified callable on 25 Aug 2026.
     models = (
         "gemini-3.6-flash",
         "gemini-3.5-flash",
         "gemini-3.5-flash-lite",
-        "gemini-flash-latest",
-        "gemini-pro-latest",
+        "gemini-3.1-flash-lite",
     )
     credential_env = "GEMINI_API_KEY"
 
@@ -66,6 +76,40 @@ class GeminiProvider(Provider):
         self._client = None
         self._lock = threading.Lock()
         self._limiter = RateLimiter(int(os.getenv("ATS_GEMINI_RPM", DEFAULT_RPM)))
+        # Model failover state, shared by every worker in a run.
+        self._model_lock = threading.Lock()
+        self._exhausted: set[str] = set()
+        self._active_model: str | None = None
+        self.switches: list[str] = []
+
+    @property
+    def active_model(self) -> str | None:
+        """The model actually in use, which failover may have changed mid-run."""
+        return self._active_model
+
+    def _resolve_model(self, configured: str) -> str:
+        with self._model_lock:
+            if self._active_model and self._active_model not in self._exhausted:
+                return self._active_model
+            if configured not in self._exhausted:
+                self._active_model = configured
+                return configured
+            for candidate in self.models:
+                if candidate not in self._exhausted:
+                    self._active_model = candidate
+                    return candidate
+            return configured
+
+    def _retire(self, model: str) -> str | None:
+        """Mark a model's daily quota spent and return the next one to try."""
+        with self._model_lock:
+            self._exhausted.add(model)
+            for candidate in (self._active_model or "", *self.models):
+                if candidate and candidate not in self._exhausted:
+                    self._active_model = candidate
+                    self.switches.append(f"{model} -> {candidate}")
+                    return candidate
+            return None
 
     # -- credentials -------------------------------------------------------
     @staticmethod
@@ -145,25 +189,44 @@ class GeminiProvider(Provider):
                 f"this key can actually use. Original error: {exc}"
             )
 
-        if any(marker in text for marker in _FATAL_MARKERS):
-            if "api key" in text or "api_key" in text:
-                return FatalScreeningError(
-                    "Gemini rejected the API key. Check GEMINI_API_KEY in your .env - "
-                    "get a fresh one at aistudio.google.com/apikey."
-                )
-            return FatalScreeningError(f"Gemini refused the request: {exc}")
+        if "api key" in text or "api_key" in text:
+            return FatalScreeningError(
+                "Gemini rejected the API key. Check GEMINI_API_KEY in your .env - "
+                "get a fresh one at aistudio.google.com/apikey."
+            )
 
+        # Rate limits are checked BEFORE the generic account markers, because the
+        # 429 body mentions billing and would otherwise be misread as one.
         if status == 429 or "resource_exhausted" in text or "quota" in text:
             if any(marker in text for marker in _DAILY_QUOTA_MARKERS):
-                return FatalScreeningError(
-                    "The Gemini free-tier daily quota is used up. It resets at "
-                    "midnight Pacific time - re-run the unscreened files then, or "
-                    "switch ATS_MODEL to gemini-3.5-flash-lite, which has a "
-                    "larger daily allowance."
-                )
-            return ClassificationError(f"Rate limited after {MAX_ATTEMPTS} attempts: {exc}")
+                return DailyQuotaExhausted(GeminiProvider._daily_quota_message(text))
+            return ClassificationError(
+                f"Rate limited, still throttled after {MAX_ATTEMPTS} attempts. "
+                f"Lower ATS_GEMINI_RPM or re-run this file later. {exc}"
+            )
+
+        if any(marker in text for marker in _FATAL_MARKERS):
+            return FatalScreeningError(f"Gemini refused the request: {exc}")
 
         return ClassificationError(f"Gemini error: {exc}")
+
+    @staticmethod
+    def _daily_quota_message(text: str) -> str:
+        """Name the model and its cap - "quota exceeded" alone tells you nothing."""
+        model = ""
+        for known in _KNOWN_DAILY_CAPS:
+            if known in text:
+                model = known
+                break
+        cap = f" (only {_KNOWN_DAILY_CAPS[model]} requests/day)" if model else ""
+        named = f" for {model}{cap}" if model else ""
+        return (
+            f"The Gemini free-tier DAILY quota{named} is used up, so no more CVs can "
+            f"be screened today. It resets at midnight Pacific time. Each model has "
+            f"its own separate daily allowance, so switching ATS_MODEL to another "
+            f"one (see `python ats_cli.py --list-models`) gives you a fresh budget "
+            f"right now. Files held in _unscreened/ can be re-run either way."
+        )
 
     @staticmethod
     def _is_retryable(exc: Exception) -> bool:
@@ -176,8 +239,31 @@ class GeminiProvider(Provider):
         return isinstance(status, int) and status >= 500
 
     # -- the call ----------------------------------------------------------
+    def _generate(self, client, model: str, contents, config) -> Verdict:
+        """One model, with retries for throttling and transient server errors."""
+        from google.genai import errors
+
+        for attempt in range(MAX_ATTEMPTS):
+            self._limiter.wait()
+            try:
+                response = client.models.generate_content(
+                    model=model, contents=contents, config=config
+                )
+                return self._parse(response)
+            except errors.APIError as exc:
+                if not self._is_retryable(exc) or attempt == MAX_ATTEMPTS - 1:
+                    raise self._classify_error(exc) from exc
+                # Exponential backoff with jitter so parallel workers desynchronise.
+                time.sleep((2**attempt) + random.uniform(0, 1))
+            except ClassificationError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - transport/parse failures
+                raise ClassificationError(f"Gemini call failed: {exc}") from exc
+
+        raise ClassificationError("Gemini did not respond")  # pragma: no cover
+
     def screen(self, doc: ExtractedDoc, settings) -> Verdict:
-        from google.genai import errors, types
+        from google.genai import types
 
         client = self._get_client()
         config = types.GenerateContentConfig(
@@ -189,25 +275,24 @@ class GeminiProvider(Provider):
         )
         contents = self._contents(doc)
 
-        last: Exception | None = None
-        for attempt in range(MAX_ATTEMPTS):
-            self._limiter.wait()
+        # Free-tier daily quotas are per model, so a spent one does not end the run:
+        # move to the next model and keep going. Only when every model is spent is
+        # the failure genuinely fatal.
+        while True:
+            model = self._resolve_model(settings.model)
             try:
-                response = client.models.generate_content(
-                    model=settings.model, contents=contents, config=config
-                )
-                break
-            except errors.APIError as exc:
-                last = exc
-                if not self._is_retryable(exc) or attempt == MAX_ATTEMPTS - 1:
-                    raise self._classify_error(exc) from exc
-                # Exponential backoff with jitter so parallel workers desynchronise.
-                time.sleep((2**attempt) + random.uniform(0, 1))
-            except Exception as exc:  # noqa: BLE001 - transport/parse failures
-                raise ClassificationError(f"Gemini call failed: {exc}") from exc
-        else:  # pragma: no cover - loop always breaks or raises
-            raise self._classify_error(last or RuntimeError("unknown failure"))
+                return self._generate(client, model, contents, config)
+            except DailyQuotaExhausted:
+                if self._retire(model) is None:
+                    raise DailyQuotaExhausted(
+                        "Every Gemini model's free daily quota is spent "
+                        f"({', '.join(sorted(self._exhausted))}). They reset at "
+                        "midnight Pacific time - re-run the files held in "
+                        "_unscreened/ then."
+                    ) from None
 
+    @staticmethod
+    def _parse(response) -> Verdict:
         verdict = getattr(response, "parsed", None)
         if isinstance(verdict, Verdict):
             return verdict
@@ -216,7 +301,9 @@ class GeminiProvider(Provider):
         # still arrive without one. Say why rather than returning junk.
         feedback = getattr(response, "prompt_feedback", None)
         if feedback is not None and getattr(feedback, "block_reason", None):
-            raise ClassificationError(f"Gemini blocked this document: {feedback.block_reason}")
+            raise ClassificationError(
+                f"Gemini blocked this document: {feedback.block_reason}"
+            )
 
         raw = (getattr(response, "text", "") or "").strip()
         if not raw:

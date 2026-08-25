@@ -5,7 +5,13 @@ from __future__ import annotations
 import threading
 
 from ..config import DEFAULT_MODELS, DEFAULT_WORKERS, PROVIDER_NAMES
-from .base import ClassificationError, FatalScreeningError, Provider, RateLimiter
+from .base import (
+    ClassificationError,
+    DailyQuotaExhausted,
+    FatalScreeningError,
+    Provider,
+    RateLimiter,
+)
 from .claude import ClaudeProvider
 from .gemini import GeminiProvider
 
@@ -41,6 +47,7 @@ __all__ = [
     "DEFAULT_MODELS",
     "DEFAULT_WORKERS",
     "ClassificationError",
+    "DailyQuotaExhausted",
     "FatalScreeningError",
     "Provider",
     "RateLimiter",
