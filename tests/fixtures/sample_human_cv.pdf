@@ -1,0 +1,153 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 2267 >>
+stream
+BT
+/F1 9 Tf
+1 0 0 1 56 780 Tm
+13 TL
+/F1 16 Tf
+(MARIAM A. FATHY) Tj
+T*
+/F1 9 Tf
+(Cairo, Egypt | +20 100 555 0142 | mariam.fathy.dev@example.com) Tj
+T*
+/F1 9 Tf
+() Tj
+T*
+/F1 11 Tf
+(PROFESSIONAL SUMMARY) Tj
+T*
+/F1 9 Tf
+(Third-year Data Science student. Comfortable with Python and SQL, still) Tj
+T*
+/F1 9 Tf
+(learning Spark. Interned twice, once in a bank IT team and once writing) Tj
+T*
+/F1 9 Tf
+(reports for a logistics company.) Tj
+T*
+/F1 9 Tf
+() Tj
+T*
+/F1 11 Tf
+(EDUCATION) Tj
+T*
+/F1 9 Tf
+(BSc Data Science and AI - Elsewedy University of Technology, expected 2027) Tj
+T*
+/F1 9 Tf
+(Coursework: Data Mining, Probability and Statistics, Data Structures,) Tj
+T*
+/F1 9 Tf
+(Cloud Databases, Object-Oriented Programming) Tj
+T*
+/F1 9 Tf
+() Tj
+T*
+/F1 11 Tf
+(WORK EXPERIENCE) Tj
+T*
+/F1 9 Tf
+(Data Analyst Intern - Nile Logistics \(Jul 2025 - Sep 2025\)) Tj
+T*
+/F1 9 Tf
+(- Rebuilt the weekly delivery report in SQL; it used to be copy-pasted) Tj
+T*
+/F1 9 Tf
+(  from four spreadsheets every Sunday.) Tj
+T*
+/F1 9 Tf
+(- Cleaned the driver dataset. Roughly 8% of rows had swapped columns.) Tj
+T*
+/F1 9 Tf
+(- Sat in on the ops meeting and took notes.) Tj
+T*
+/F1 9 Tf
+() Tj
+T*
+/F1 9 Tf
+(IT Intern - MIDBANK \(Aug 2024 - Sep 2024\)) Tj
+T*
+/F1 9 Tf
+(- Helped the support team with ticket triage and password resets.) Tj
+T*
+/F1 9 Tf
+(- Documented the onboarding checklist nobody had written down.) Tj
+T*
+/F1 9 Tf
+() Tj
+T*
+/F1 11 Tf
+(PROJECTS) Tj
+T*
+/F1 9 Tf
+(Retail RFM segmentation - Python, pandas, scikit-learn) Tj
+T*
+/F1 9 Tf
+(  K-Means on 1.2M transactions. Elbow plot was ambiguous so I used) Tj
+T*
+/F1 9 Tf
+(  silhouette score instead. Streamlit dashboard on top.) Tj
+T*
+/F1 9 Tf
+(Campus energy predictor - Python, scikit-learn \(unfinished\)) Tj
+T*
+/F1 9 Tf
+(  Linear regression baseline works, the seasonal features do not yet.) Tj
+T*
+/F1 9 Tf
+() Tj
+T*
+/F1 11 Tf
+(TECHNICAL SKILLS) Tj
+T*
+/F1 9 Tf
+(Programming: Python, SQL, a little Java) Tj
+T*
+/F1 9 Tf
+(Data: pandas, NumPy, scikit-learn, matplotlib, Power BI basics) Tj
+T*
+/F1 9 Tf
+(Tools: Git, VS Code, MySQL, Jupyter) Tj
+T*
+/F1 9 Tf
+() Tj
+T*
+/F1 11 Tf
+(CERTIFICATIONS AND LANGUAGES) Tj
+T*
+/F1 9 Tf
+(Google Data Analytics Certificate \(Nov 2025\)) Tj
+T*
+/F1 9 Tf
+(Arabic \(native\), English \(upper intermediate\)) Tj
+T*
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000002560 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+2630
+%%EOF

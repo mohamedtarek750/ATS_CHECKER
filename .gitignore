@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.pyc
+data/inbox/*
+data/output/*
+!data/inbox/.gitkeep
+!data/output/.gitkeep
+.venv/
+
+# Never commit real applicants CVs
+tests/fixtures/real_student_cv.pdf

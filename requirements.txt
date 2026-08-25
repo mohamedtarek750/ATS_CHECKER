@@ -1,0 +1,7 @@
+anthropic>=1,<2
+pypdf>=5
+python-docx>=1.1
+python-dotenv>=1
+pydantic>=2
+streamlit>=1.36
+pandas>=2

@@ -1,0 +1,15 @@
+INVOICE #2026-0417
+
+Administrative Capital for Urban Development
+Billing period: 01 Mar 2026 - 31 Mar 2026
+
+Item                          Qty     Unit price     Total
+Office chairs                  12       1,450.00    17,400.00
+Desk lamps                     30         210.00     6,300.00
+Cabling installation            1       9,800.00     9,800.00
+
+Subtotal                                            33,500.00
+VAT (14%)                                            4,690.00
+Total due                                           38,190.00
+
+Payment terms: 30 days net. Bank transfer to account 1234-5678-9012.
