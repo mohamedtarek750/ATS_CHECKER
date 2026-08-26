@@ -116,6 +116,14 @@ class Verdict(BaseModel):
         ),
     )
     format_notes: str = Field(description="One or two sentences on structure/formatting.")
+    missing_sections: list[str] = Field(
+        description=(
+            "Expected CV sections that are absent or effectively empty, from: "
+            "contact, summary, education, experience, projects, skills. Report what "
+            "is genuinely missing - not sections that are merely named differently, "
+            "ordered differently, or merged into another one."
+        )
+    )
     quality_score: int = Field(
         ge=0, le=100, description="Overall CV quality: substance, clarity, evidence."
     )

@@ -48,6 +48,7 @@ VERDICT_JSON = {
     "human_signals": ["Named coursework and specific local employers"],
     "format_score": 90,
     "format_notes": "Standard reverse-chronological structure.",
+    "missing_sections": [],
     "quality_score": 78,
     "suggested_reject_reason": "none",
     "reasoning": "Genuine student CV with concrete, checkable detail.",

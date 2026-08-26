@@ -40,6 +40,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--model", default=None, help="Model id for the provider.")
     parser.add_argument(
+        "--min-format", type=int, default=None,
+        help="Reject a CV whose structure score is below this (0 = off).",
+    )
+    parser.add_argument(
+        "--min-quality", type=int, default=None,
+        help="Reject a CV whose content score is below this (0 = off).",
+    )
+    parser.add_argument(
+        "--require", default=None,
+        help="Comma-separated sections a CV must have, e.g. "
+             "'contact,education,skills'. Rejects CVs missing any of them.",
+    )
+    parser.add_argument(
+        "--strict", action="store_true",
+        help="Preset: --min-format 70 --min-quality 60 "
+             "--require contact,education,skills.",
+    )
+    parser.add_argument(
         "--list-models", action="store_true",
         help="Print the models this provider's key can actually call, then exit.",
     )
@@ -68,6 +86,20 @@ def make_settings(args: argparse.Namespace) -> Settings:
         settings.max_workers = args.workers
     if args.model:
         settings.model = args.model
+
+    if args.strict:
+        settings.min_format_score = 70
+        settings.min_quality_score = 60
+        settings.required_sections = ("contact", "education", "skills")
+    if args.min_format is not None:
+        settings.min_format_score = args.min_format
+    if args.min_quality is not None:
+        settings.min_quality_score = args.min_quality
+    if args.require is not None:
+        settings.required_sections = tuple(
+            part.strip().lower() for part in args.require.split(",") if part.strip()
+        )
+
     settings.dry_run = args.dry_run
     return settings
 
@@ -122,8 +154,18 @@ def main(argv: list[str] | None = None) -> int:
 
     print(
         f"Screening {len(paths)} file(s) with {settings.model} "
-        f"[{settings.provider}], AI-reject threshold {settings.ai_threshold}\n"
+        f"[{settings.provider}], AI-reject threshold {settings.ai_threshold}"
     )
+    bar = []
+    if settings.min_format_score:
+        bar.append(f"structure >= {settings.min_format_score}")
+    if settings.min_quality_score:
+        bar.append(f"content >= {settings.min_quality_score}")
+    if settings.required_sections:
+        bar.append("must have " + "/".join(settings.required_sections))
+    if bar:
+        print(f"Standard bar: {', '.join(bar)}")
+    print()
 
     def on_progress(result, done: int, total: int) -> None:
         mark = "FAIL" if result.errored else "PASS" if result.accepted else "DROP"

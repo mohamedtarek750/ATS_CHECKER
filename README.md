@@ -190,6 +190,33 @@ threshold without re-tuning any wording.
 | `ai_generated` | AI score ≥ threshold. |
 | `unreadable` | Encrypted, corrupt, empty, or an unsupported file type. |
 | `insufficient_content` | A CV, but under ~250 characters of usable text. |
+| `below_standard` | Only when a standard bar is configured — see below. Off by default. |
+
+### The standard bar (optional, off by default)
+
+```bash
+python ats_cli.py --input data/inbox --strict
+```
+```bash
+python ats_cli.py --input data/inbox --min-format 70 --min-quality 60 --require contact,education,skills
+```
+
+This rejects CVs that are **incomplete**, never CVs that merely *look different*.
+`format_score` is scored on how much substance is present and findable, and the
+prompt explicitly rules out layout, template, and language as factors. A designer's
+two-column CV with real work passes; a tidy one-pager with nothing behind it does
+not.
+
+Two things worth knowing before you turn it on:
+
+- **Requiring `experience` rejects every student and fresh graduate**, including the
+  CV this project was calibrated on. The UI warns you if you select it.
+- **Measure the bar before you deploy it.** `python eval/run_eval.py --strict`
+  prints exactly which labelled CVs the bar drops and flags the ones that are
+  genuine human applicants. On the bundled samples, `--strict` drops one file, and
+  it is a 47-character stub — zero real CVs. Set the bar much higher and that stops
+  being true: the genuine samples score 85–95 on structure and 85–95 on content, so
+  a bar above ~85 starts rejecting real people.
 
 A CV whose role cannot be pinned down confidently (`role_confidence` below
 `--min-role-confidence`, default 40) is **still accepted** but filed under

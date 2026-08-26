@@ -43,6 +43,7 @@ def make_verdict(**overrides) -> Verdict:
         human_signals=["Specific course names"],
         format_score=85,
         format_notes="Standard structure.",
+        missing_sections=[],
         quality_score=75,
         suggested_reject_reason="none",
         reasoning="Genuine junior data science CV.",
@@ -138,6 +139,58 @@ def test_custom_role_gets_its_own_folder():
         make_verdict(role_family="Other", custom_role_title="Pharmacist"), doc, settings
     )
     assert decision.role_folder == "Pharmacists"
+
+
+def test_standard_bar_is_off_by_default():
+    """A plain run must never reject a genuine CV for being incomplete."""
+    settings = Settings()
+    assert settings.min_format_score == 0
+    assert settings.min_quality_score == 0
+    assert settings.required_sections == ()
+
+    doc = extract(FIXTURES / "sample_human_cv.pdf")
+    thin = make_verdict(format_score=20, quality_score=15, missing_sections=["experience"])
+    assert decide(thin, doc, settings).status == "accepted"
+
+
+def test_standard_bar_rejects_on_scores_when_configured():
+    settings = Settings()
+    settings.min_format_score = 70
+    settings.min_quality_score = 60
+    doc = extract(FIXTURES / "sample_human_cv.pdf")
+
+    decision = decide(make_verdict(format_score=40), doc, settings)
+    assert decision.reason == "below_standard"
+    assert "structure score 40" in decision.explanation
+    # Still filed under its role, like every other rejection.
+    assert decision.role_folder == "Data_Scientists"
+
+    assert decide(make_verdict(quality_score=30), doc, settings).reason == "below_standard"
+    assert decide(make_verdict(), doc, settings).status == "accepted"
+
+
+def test_required_sections_only_fire_on_genuinely_missing_ones():
+    settings = Settings()
+    settings.required_sections = ("contact", "education", "skills")
+    doc = extract(FIXTURES / "sample_human_cv.pdf")
+
+    # A student with no jobs is missing `experience`, which is not required here.
+    student = make_verdict(missing_sections=["experience"])
+    assert decide(student, doc, settings).status == "accepted"
+
+    no_contact = make_verdict(missing_sections=["contact"])
+    decision = decide(no_contact, doc, settings)
+    assert decision.reason == "below_standard"
+    assert "contact" in decision.explanation
+
+
+def test_ai_generated_outranks_below_standard():
+    """An AI CV must be reported as AI, not as merely incomplete."""
+    settings = Settings()
+    settings.min_format_score = 90
+    doc = extract(FIXTURES / "sample_human_cv.pdf")
+    verdict = make_verdict(ai_generated_score=95, format_score=10)
+    assert decide(verdict, doc, settings).reason == "ai_generated"
 
 
 def test_slugify():

@@ -28,6 +28,7 @@ REASON_LABELS = {
     "ai_generated": "AI-generated",
     "unreadable": "Unreadable file",
     "insufficient_content": "Too little content",
+    "below_standard": "Below the standard bar",
     "screening_failed": "NOT screened",
     "none": "-",
 }
@@ -93,6 +94,26 @@ def sidebar_settings() -> Settings:
         step=5,
         help="Below this the CV goes to the Undetermined folder instead of a guess.",
     )
+    with st.sidebar.expander("Standard bar (optional)"):
+        st.caption(
+            "Rejects CVs that are INCOMPLETE, not ones that look different. "
+            "Leave at 0 to accept any genuine CV."
+        )
+        settings.min_format_score = st.slider("Minimum structure score", 0, 100, 0, 5)
+        settings.min_quality_score = st.slider("Minimum content score", 0, 100, 0, 5)
+        settings.required_sections = tuple(
+            st.multiselect(
+                "Sections a CV must have",
+                ["contact", "summary", "education", "experience", "projects", "skills"],
+                default=[],
+            )
+        )
+        if "experience" in settings.required_sections:
+            st.warning(
+                "Requiring `experience` rejects every student and fresh graduate, "
+                "including the CV this project was calibrated on."
+            )
+
     settings.file_action = st.sidebar.radio(
         "Original files",
         ["copy", "move"],

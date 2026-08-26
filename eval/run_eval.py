@@ -56,6 +56,9 @@ def screen(case: dict, settings: Settings) -> dict | None:
         "role": decision.role_label,
         "ai": verdict.ai_generated_score,
         "confidence": verdict.role_confidence,
+        "format": verdict.format_score,
+        "quality": verdict.quality_score,
+        "missing": verdict.missing_sections,
     }
 
 
@@ -63,6 +66,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Score the screener against labels.")
     parser.add_argument("--model", default=None)
     parser.add_argument("--provider", default=None)
+    parser.add_argument("--min-format", type=int, default=None)
+    parser.add_argument("--min-quality", type=int, default=None)
+    parser.add_argument("--require", default=None)
+    parser.add_argument(
+        "--strict", action="store_true",
+        help="Same preset as ats_cli.py --strict, to see what the bar costs.",
+    )
     parser.add_argument(
         "--repeat", type=int, default=1,
         help="Screen each CV N times to measure how stable the verdicts are.",
@@ -74,6 +84,18 @@ def main() -> int:
         settings.provider = args.provider
     if args.model:
         settings.model = args.model
+    if args.strict:
+        settings.min_format_score = 70
+        settings.min_quality_score = 60
+        settings.required_sections = ("contact", "education", "skills")
+    if args.min_format is not None:
+        settings.min_format_score = args.min_format
+    if args.min_quality is not None:
+        settings.min_quality_score = args.min_quality
+    if args.require is not None:
+        settings.required_sections = tuple(
+            p.strip().lower() for p in args.require.split(",") if p.strip()
+        )
 
     problem = preflight(settings)
     if problem:
@@ -120,12 +142,17 @@ def main() -> int:
             "got_reason": first["reason"],
             "expected_reason": case["reason"],
             "ai": first["ai"],
+            "format": first["format"],
+            "quality": first["quality"],
+            "missing": first["missing"],
             "human_written": case["human_written"],
         })
 
         mark = "ok  " if (status_ok and reason_ok and role_ok) else "MISS"
         wobble = "" if stable else "  UNSTABLE"
-        print(f"  {mark}  {name:<42} {first['role']:<26} ai={first['ai']:>3}{wobble}")
+        print(f"  {mark}  {name:<42} {first['role']:<26} "
+              f"ai={first['ai']:>3} fmt={first['format']:>3} qual={first['quality']:>3}"
+              f"{wobble}")
 
     if not rows:
         print("\nNothing scored.")
@@ -167,6 +194,19 @@ def main() -> int:
                   f"add more labelled CVs before relying on it.")
         else:
             print(f"  >> Margin {margin} points. Nothing overlaps.")
+
+    # What a strictness bar actually costs, in real applicants.
+    if settings.min_format_score or settings.min_quality_score or settings.required_sections:
+        dropped = [r for r in rows if r["got_reason"] == "below_standard"]
+        genuine = [r for r in dropped if r["human_written"] is True]
+        print(
+            f"\nStandard bar rejected {len(dropped)} CV(s), "
+            f"{len(genuine)} of them genuine human CVs"
+        )
+        for r in dropped:
+            tag = "  <- a real applicant" if r["human_written"] is True else ""
+            print(f"  {r['name']:<42} fmt={r['format']:>3} qual={r['quality']:>3} "
+                  f"missing={r['missing']}{tag}")
 
     misses = [r for r in rows if not (r["status_ok"] and r["reason_ok"] and r["role_ok"])]
     if misses:

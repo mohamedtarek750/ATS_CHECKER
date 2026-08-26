@@ -85,7 +85,9 @@ def decide(verdict: Verdict, doc: ExtractedDoc, settings: Settings) -> Decision:
             role_folder=folder,
         )
 
-    # 3. A real CV, but with nothing in it to evaluate.
+    # 3. A real CV, but with nothing in it to evaluate. Checked before the
+    #    standard bar so the more specific reason wins: a 47-character file is
+    #    "insufficient_content", not "below_standard".
     if doc.char_count < settings.min_chars and not doc.needs_vision:
         return Decision(
             status="rejected",
@@ -97,6 +99,19 @@ def decide(verdict: Verdict, doc: ExtractedDoc, settings: Settings) -> Decision:
             role_folder=folder,
         )
 
+    # 4. A real CV that falls under the completeness bar, when one is configured.
+    #    Deliberately keyed to what the CV CONTAINS, not what it looks like: a
+    #    designer's two-column layout passes, an empty tidy one-pager does not.
+    shortfall = _below_standard(verdict, settings)
+    if shortfall:
+        return Decision(
+            status="rejected",
+            reason="below_standard",
+            explanation=shortfall,
+            role_label=label,
+            role_folder=folder,
+        )
+
     return Decision(
         status="accepted",
         reason="none",
@@ -104,6 +119,31 @@ def decide(verdict: Verdict, doc: ExtractedDoc, settings: Settings) -> Decision:
         role_label=label,
         role_folder=folder,
     )
+
+
+def _below_standard(verdict: Verdict, settings: Settings) -> str:
+    """Why this CV misses the configured bar, or '' if it clears it."""
+    reasons: list[str] = []
+
+    if settings.min_format_score and verdict.format_score < settings.min_format_score:
+        reasons.append(
+            f"structure score {verdict.format_score} is below the required "
+            f"{settings.min_format_score}"
+        )
+    if settings.min_quality_score and verdict.quality_score < settings.min_quality_score:
+        reasons.append(
+            f"content score {verdict.quality_score} is below the required "
+            f"{settings.min_quality_score}"
+        )
+    if settings.required_sections:
+        missing = {s.strip().lower() for s in verdict.missing_sections}
+        absent = [s for s in settings.required_sections if s in missing]
+        if absent:
+            reasons.append(f"missing required section(s): {', '.join(absent)}")
+
+    if not reasons:
+        return ""
+    return "Below the configured standard - " + "; ".join(reasons) + "."
 
 
 def rejection_for_broken_file(doc: ExtractedDoc, message: str) -> Decision:
