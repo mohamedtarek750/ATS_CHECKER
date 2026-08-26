@@ -155,6 +155,25 @@ threshold, it says so loudly, because that means real applicants get rejected.
 python eval/run_eval.py --repeat 3
 ```
 
+### Tuning thresholds on a finished run
+
+A run already recorded every score, so you can test other settings without
+spending a single API call:
+
+```bash
+python eval/tune.py
+```
+
+Sweeps the AI threshold and the quality bar over the last report and shows how many
+CVs each setting rejects. Then see exactly who a setting drops, by name:
+
+```bash
+python eval/tune.py --threshold 70 --min-quality 85
+```
+
+Do this before changing a threshold in production. "Reject more" is easy to ask for
+and hard to picture — this shows you the actual list of people it removes.
+
 Screens each CV three times and reports how often the verdict changes. A system that
 answers differently to the same CV is not a screening tool, whatever its average
 accuracy is.
