@@ -49,8 +49,17 @@ def intake(
     Anything already stored is skipped without an API call, so re-running an
     interrupted batch costs only what is genuinely left.
     """
-    docs = parse.parse_many(paths, settings)
+    # Only files that still need reading are extracted; the rest are recognised
+    # from the index without being opened.
+    known = store.known_hashes(settings)
+    keys = parse.index_keys(paths, settings)
+    to_read = [p for p in paths if keys.get(p) not in known]
+
+    docs = parse.parse_many(to_read, settings)
     report = IntakeReport()
+    # Files skipped before any reading. The loop below only sees `to_read`, so
+    # these are counted here once and never again.
+    report.already_known = len(paths) - len(to_read)
 
     for doc in docs:
         if not doc.ok:
@@ -71,7 +80,7 @@ def intake(
             report.failed += 1
             report.errors.append((result.doc.path.name, result.error))
         elif result.from_cache:
-            report.already_known += 1
+            pass          # already counted in the pre-count above
         else:
             report.added += 1
         if result.profile is not None and not result.profile.is_cv:
@@ -81,9 +90,15 @@ def intake(
 
 
 def pending_count(paths: list[Path], settings: Settings) -> int:
-    """How many of these still need a model call. Cheap: no network."""
+    """How many of these still need a model call.
+
+    Deliberately does not read the files. Answering this question by re-extracting
+    every PDF made every interaction in the UI cost about 50 ms per file - a second
+    per click at 20 CVs, a minute at a thousand.
+    """
     known = store.known_hashes(settings)
-    return sum(1 for d in parse.parse_many(paths, settings) if d.ok and d.key not in known)
+    keys = parse.index_keys(paths, settings)
+    return sum(1 for key in keys.values() if key not in known)
 
 
 def shortlist(job: JobProfile, settings: Settings) -> list[rank.RankedCandidate]:

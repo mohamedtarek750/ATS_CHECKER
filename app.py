@@ -29,6 +29,34 @@ from ats.stages import jobspec, parse, rank
 
 st.set_page_config(page_title="ACUD ATS", layout="wide")
 
+@st.cache_data(show_spinner=False)
+def _cached_shortlist(job_name: str, pool_size: int, job_mtime: float):
+    """Ranking is cheap but not free, and Streamlit re-runs the whole script on
+    every keystroke. The cache key changes when the pool grows or the job is
+    edited, which is exactly when the answer can change.
+    """
+    settings = Settings()
+    job = jobspec.load(job_name)
+    return screening.shortlist(job, settings), job
+
+
+@st.cache_data(show_spinner=False)
+def _cached_scan(folder: str, pool_size: int, stamp: float):
+    """Discovering files and counting what is new. Same reasoning."""
+    settings = Settings()
+    paths = parse.discover(Path(folder))
+    return paths, screening.pending_count(paths, settings)
+
+
+def _folder_stamp(folder: Path) -> float:
+    """Changes when a file is added, removed, or replaced in the folder."""
+    try:
+        entries = list(folder.iterdir())
+    except OSError:
+        return 0.0
+    return round(sum(e.stat().st_mtime for e in entries) + len(entries), 3)
+
+
 STATUS_STYLE = {
     "met": ("✓", "Met"),
     "partial": ("~", "Close"),
@@ -97,12 +125,16 @@ def tab_cvs(settings: Settings) -> None:
             (settings.inbox_dir / upload.name).write_bytes(upload.getbuffer())
 
     folder = st.text_input("...or a folder on this machine", value=str(settings.inbox_dir))
-    paths = parse.discover(Path(folder)) if folder else []
-    if not paths:
+    if not folder:
         st.info("No CVs staged yet.")
         return
 
-    pending = screening.pending_count(paths, settings)
+    paths, pending = _cached_scan(
+        folder, pool["total"], _folder_stamp(Path(folder))
+    )
+    if not paths:
+        st.info("No CVs staged yet.")
+        return
     st.write(f"**{len(paths)} file(s) here - {pending} still need reading.**")
 
     problem = preflight(settings)
@@ -227,9 +259,11 @@ def tab_shortlist(settings: Settings) -> None:
         return
 
     chosen = st.selectbox("Vacancy", [p.stem for p in saved])
-    job = jobspec.load(next(p for p in saved if p.stem == chosen))
+    job_path = next(p for p in saved if p.stem == chosen)
 
-    ranked = screening.shortlist(job, settings)
+    ranked, job = _cached_shortlist(
+        str(job_path), store.stats(settings)["total"], job_path.stat().st_mtime
+    )
     stats = rank.summarize(ranked)
 
     c1, c2, c3, c4 = st.columns(4)

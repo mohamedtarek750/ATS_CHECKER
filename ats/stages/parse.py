@@ -11,6 +11,7 @@ from pathlib import Path
 
 from ..config import SUPPORTED_EXTENSIONS, Settings
 from ..extract import ExtractedDoc, extract
+from .. import store
 from ..store import doc_hash
 
 
@@ -66,3 +67,32 @@ def parse_one(path: Path, settings: Settings | None = None) -> ParsedDoc:
 def parse_many(paths: list[Path], settings: Settings | None = None) -> list[ParsedDoc]:
     """Read a whole batch. Cheap enough to run over thousands of files up front."""
     return [parse_one(path, settings) for path in paths]
+
+
+def index_keys(paths: list[Path], settings) -> dict[Path, str]:
+    """Content key per file, reading only the files we have not seen before.
+
+    A file whose size and mtime match the index is identified from that record.
+    Re-reading a thousand PDFs to answer "how many of these are new?" made every
+    click in the UI cost seconds; this makes it a stat() call.
+    """
+    known = store.file_index(settings)
+    keys: dict[Path, str] = {}
+    fresh: list[tuple[Path, str]] = []
+
+    for path in paths:
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        record = known.get(str(path))
+        if record and record[0] == stat.st_size and abs(record[1] - stat.st_mtime) < 1e-6:
+            keys[path] = record[2]
+            continue
+        parsed = parse_one(path, settings)
+        keys[path] = parsed.key
+        if parsed.ok:
+            fresh.append((path, parsed.key))
+
+    store.remember_files(settings, fresh)
+    return keys
