@@ -193,6 +193,47 @@ def test_a_failed_file_says_why_next_to_its_name():
     assert event.label == "FAIL"
 
 
+def test_staging_an_upload_twice_does_not_rewrite_it():
+    """Streamlit re-runs the script on every click and hands back the same uploads.
+
+    Rewriting them each time bumped every mtime, which invalidated the parse index
+    and forced a full re-extraction - about a second per click at 118 CVs, and
+    several on a slower host. The file must be left alone if it is already staged.
+    """
+    import sys as _sys
+
+    _sys.path.insert(0, str(ROOT))
+    from app import stage_uploads
+
+    class FakeUpload:
+        def __init__(self, name: str, data: bytes) -> None:
+            self.name = name
+            self._data = data
+
+        def getbuffer(self):
+            return memoryview(self._data)
+
+    tmp = Path(tempfile.mkdtemp())
+    inbox = tmp / "inbox"
+    try:
+        uploads = [FakeUpload(f"cv_{i}.pdf", b"x" * (100 + i)) for i in range(5)]
+
+        assert stage_uploads(uploads, inbox) == 5
+        before = {p.name: p.stat().st_mtime_ns for p in inbox.iterdir()}
+
+        # The same rerun, the same uploads: nothing should be touched.
+        assert stage_uploads(uploads, inbox) == 0
+        after = {p.name: p.stat().st_mtime_ns for p in inbox.iterdir()}
+        assert before == after, "an unchanged upload must not be rewritten"
+
+        # A genuinely different file under the same name IS written.
+        uploads[0] = FakeUpload("cv_0.pdf", b"y" * 999)
+        assert stage_uploads(uploads, inbox) == 1
+        assert (inbox / "cv_0.pdf").stat().st_size == 999
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_a_large_intake_is_fast_and_free():
     tmp = Path(tempfile.mkdtemp())
     inbox = tmp / "inbox"

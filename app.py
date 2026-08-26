@@ -123,6 +123,34 @@ def how_to_read(settings: Settings) -> Settings:
     return settings
 
 
+def stage_uploads(uploads, inbox: Path) -> int:
+    """Write only the files that are not already staged. Returns how many were new.
+
+    Streamlit holds uploaded files in session state and re-runs the whole script on
+    every interaction, so writing them unconditionally rewrote the entire batch on
+    each click. That also bumped every mtime, which invalidated the parse index and
+    forced a full re-extraction - about ten seconds per click at 118 CVs.
+    """
+    inbox.mkdir(parents=True, exist_ok=True)
+    written = 0
+    for upload in uploads:
+        target = inbox / upload.name
+        data = upload.getbuffer()
+        if target.exists() and target.stat().st_size == data.nbytes:
+            continue          # same name, same size: already staged
+        target.write_bytes(data)
+        written += 1
+    return written
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _cached_preflight(provider: str) -> str:
+    """Ollama's check is an HTTP call. Un-cached it cost seconds on every rerun."""
+    settings = Settings()
+    settings.provider = provider
+    return preflight(settings)
+
+
 def load_secrets() -> None:
     """Streamlit Cloud has no .env; keys arrive through st.secrets."""
     for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "ATS_PROVIDER"):
@@ -180,9 +208,7 @@ def tab_cvs(settings: Settings) -> None:
         key=f"uploads_{round_no}",
     )
     if uploads:
-        settings.inbox_dir.mkdir(parents=True, exist_ok=True)
-        for upload in uploads:
-            (settings.inbox_dir / upload.name).write_bytes(upload.getbuffer())
+        stage_uploads(uploads, settings.inbox_dir)
 
     folder = st.text_input("...or a folder on this machine", value=str(settings.inbox_dir))
     if not folder:
@@ -197,7 +223,7 @@ def tab_cvs(settings: Settings) -> None:
         return
     st.write(f"**{len(paths)} file(s) here - {pending} still need reading.**")
 
-    problem = preflight(settings)
+    problem = _cached_preflight(settings.provider)
     if problem:
         st.error(problem)
         return
@@ -275,7 +301,7 @@ def tab_jobs(settings: Settings) -> None:
 
     text = st.text_area("Job advert", height=240)
     if st.button("Read the requirements", disabled=not text.strip()):
-        problem = preflight(settings)
+        problem = _cached_preflight(settings.provider)
         if problem:
             st.error(problem)
         else:
