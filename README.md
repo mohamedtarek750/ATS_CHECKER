@@ -240,22 +240,41 @@ threshold without re-tuning any wording.
 | `ai_generated` | AI score ≥ threshold. |
 | `unreadable` | Encrypted, corrupt, empty, or an unsupported file type. |
 | `insufficient_content` | A CV, but under ~250 characters of usable text. |
-| `below_standard` | Only when a standard bar is configured — see below. Off by default. |
+| `poor_structure` | No headings, no dates, a wall of text, image-only — the information cannot be extracted. |
+| `unprofessional` | Inappropriate register or presentation, with the evidence named. |
+| `low_quality` | A readable, professional CV with nothing concrete behind its claims. |
 
-### The standard bar (optional, off by default)
+The last three fire only when you configure a bar for them. All are off by default.
+
+### The quality bars (optional, off by default)
 
 ```bash
 python ats_cli.py --input data/inbox --strict
 ```
 ```bash
-python ats_cli.py --input data/inbox --min-format 70 --min-quality 60 --require contact,education,skills
+python ats_cli.py --input data/inbox --min-format 70 --min-professionalism 70 --min-quality 60
 ```
 
-This rejects CVs that are **incomplete**, never CVs that merely *look different*.
-`format_score` is scored on how much substance is present and findable, and the
-prompt explicitly rules out layout, template, and language as factors. A designer's
-two-column CV with real work passes; a tidy one-pager with nothing behind it does
-not.
+Each bar rejects under its **own reason**, so `rejected/` tells you why:
+
+| Bar | Reason | What it actually catches |
+|---|---|---|
+| `--min-format` | `poor_structure` | No headings, no dates, a wall of text, content trapped in an image, a layout that scrambles when parsed |
+| `--min-professionalism` | `unprofessional` | A joke email address, slang, emoji bullets, oversharing, pervasive typos, a placeholder left in |
+| `--min-quality` | `low_quality` | Claims with no evidence behind them |
+| `--require` | `poor_structure` | A named section genuinely absent |
+
+**What these deliberately do not catch:** a template you did not pick. The prompt
+rules out, explicitly and by name, deducting for non-native English, a photo or date
+of birth (normal on CVs in Egypt and the region), a plain or free template, a modest
+university, an employment gap, or a personal Gmail address. Those correlate with
+where someone is from and what they could afford, not with whether they can do the
+job. A designer's two-column CV with real work passes; a beautiful one with nothing
+in it does not.
+
+When several bars fail at once the most specific wins — structure first, since a CV
+nobody can read cannot be judged on anything else — and the others are appended to
+the explanation rather than dropped.
 
 Two things worth knowing before you turn it on:
 

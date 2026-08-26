@@ -38,6 +38,9 @@ RejectReason = Literal[
     "ai_generated",
     "unreadable",
     "insufficient_content",
+    "poor_structure",
+    "unprofessional",
+    "low_quality",
 ]
 
 
@@ -116,6 +119,32 @@ class Verdict(BaseModel):
         ),
     )
     format_notes: str = Field(description="One or two sentences on structure/formatting.")
+    structure_issues: list[str] = Field(
+        description=(
+            "Concrete structural problems that make this CV hard to read or to "
+            "parse: no section headings, one wall of text, employment dates absent, "
+            "content trapped in images, contact details missing. Quote or point at "
+            "what you mean. Empty list if the structure is fine."
+        )
+    )
+    professionalism_score: int = Field(
+        ge=0,
+        le=100,
+        description=(
+            "How professionally the CV presents its author. 100 = entirely "
+            "appropriate for a job application. Judge register and appropriateness "
+            "ONLY - never the person's background, country, language ability, or "
+            "how expensive their template looks."
+        ),
+    )
+    professionalism_issues: list[str] = Field(
+        description=(
+            "Concrete lapses in professional presentation, each with the evidence: "
+            "a joke or inappropriate email address, slang or chat-speak, emojis, "
+            "offensive or oversharing content, pervasive typos, an unfinished "
+            "sentence left in. Empty list if there are none."
+        )
+    )
     missing_sections: list[str] = Field(
         description=(
             "Expected CV sections that are absent or effectively empty, from: "

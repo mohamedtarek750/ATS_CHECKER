@@ -38,16 +38,20 @@ def load(path: Path) -> list[dict]:
     return [r for r in data["results"] if r["status"] != "error"]
 
 
-def verdict_at(row: dict, ai_threshold: int, min_quality: int, min_format: int) -> str:
+def verdict_at(
+    row: dict, ai_threshold: int, min_quality: int, min_format: int, min_prof: int = 0
+) -> str:
     """Re-apply the rules in the same priority order as ats/decision.py."""
     if row["reason"] in {"not_a_cv", "unreadable", "insufficient_content"}:
         return row["reason"]
     if row["ai_generated_score"] >= ai_threshold:
         return "ai_generated"
-    if min_quality and row["quality_score"] < min_quality:
-        return "below_standard"
     if min_format and row["format_score"] < min_format:
-        return "below_standard"
+        return "poor_structure"
+    if min_prof and row.get("professionalism_score", 100) < min_prof:
+        return "unprofessional"
+    if min_quality and row["quality_score"] < min_quality:
+        return "low_quality"
     return "accepted"
 
 
@@ -70,8 +74,8 @@ def sweep(rows: list[dict]) -> None:
         print(f"  {bar:>11}  {len(dropped):>9}  {len(rows)-len(dropped):>9}")
 
 
-def show(rows: list[dict], ai: int, quality: int, fmt: int) -> None:
-    results = [(r, verdict_at(r, ai, quality, fmt)) for r in rows]
+def show(rows: list[dict], ai: int, quality: int, fmt: int, prof: int = 0) -> None:
+    results = [(r, verdict_at(r, ai, quality, fmt, prof)) for r in rows]
     accepted = [r for r, v in results if v == "accepted"]
     rejected = [(r, v) for r, v in results if v != "accepted"]
 
@@ -98,6 +102,7 @@ def main() -> int:
     parser.add_argument("--threshold", type=int, default=None, help="AI reject threshold.")
     parser.add_argument("--min-quality", type=int, default=0)
     parser.add_argument("--min-format", type=int, default=0)
+    parser.add_argument("--min-professionalism", type=int, default=0)
     args = parser.parse_args()
 
     settings = Settings()
@@ -114,7 +119,8 @@ def main() -> int:
     print(f"Report: {path}")
     print(f"CVs   : {len(rows)}")
 
-    if args.threshold is None and not args.min_quality and not args.min_format:
+    if (args.threshold is None and not args.min_quality and not args.min_format
+            and not args.min_professionalism):
         sweep(rows)
         print("\nThen pick a setting and see exactly who it drops:")
         print("  python eval/tune.py --threshold 70")
@@ -122,13 +128,16 @@ def main() -> int:
         print("\nNothing here re-screens anything - it replays scores already recorded.")
         return 0
 
-    show(rows, args.threshold or settings.ai_threshold, args.min_quality, args.min_format)
+    show(rows, args.threshold or settings.ai_threshold, args.min_quality,
+         args.min_format, args.min_professionalism)
     print("\nApply it for real with:")
     bits = [f"--threshold {args.threshold or settings.ai_threshold}"]
     if args.min_quality:
         bits.append(f"--min-quality {args.min_quality}")
     if args.min_format:
         bits.append(f"--min-format {args.min_format}")
+    if args.min_professionalism:
+        bits.append(f"--min-professionalism {args.min_professionalism}")
     print(f"  python ats_cli.py --input data/inbox {' '.join(bits)}")
     return 0
 

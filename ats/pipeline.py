@@ -69,6 +69,7 @@ class ScreenResult:
     role_confidence: int = 0
     ai_generated_score: int = 0
     format_score: int = 0
+    professionalism_score: int = 0
     quality_score: int = 0
     top_skills: list[str] = field(default_factory=list)
     ai_signals: list[str] = field(default_factory=list)
@@ -116,6 +117,7 @@ def _result_from(
         result.role_confidence = verdict.role_confidence
         result.ai_generated_score = verdict.ai_generated_score
         result.format_score = verdict.format_score
+        result.professionalism_score = verdict.professionalism_score
         result.quality_score = verdict.quality_score
         result.top_skills = verdict.top_skills
         result.ai_signals = verdict.ai_signals
@@ -258,6 +260,7 @@ CSV_COLUMNS = [
     "role_confidence",
     "ai_generated_score",
     "format_score",
+    "professionalism_score",
     "quality_score",
     "explanation",
     "model_used",

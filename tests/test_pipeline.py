@@ -44,6 +44,9 @@ def make_verdict(**overrides) -> Verdict:
         format_score=85,
         format_notes="Standard structure.",
         missing_sections=[],
+        structure_issues=[],
+        professionalism_score=90,
+        professionalism_issues=[],
         quality_score=75,
         suggested_reject_reason="none",
         reasoning="Genuine junior data science CV.",
@@ -149,24 +152,62 @@ def test_standard_bar_is_off_by_default():
     assert settings.required_sections == ()
 
     doc = extract(FIXTURES / "sample_human_cv.pdf")
-    thin = make_verdict(format_score=20, quality_score=15, missing_sections=["experience"])
+    assert settings.min_professionalism_score == 0
+    thin = make_verdict(
+        format_score=20, quality_score=15, professionalism_score=10,
+        missing_sections=["experience"],
+    )
     assert decide(thin, doc, settings).status == "accepted"
 
 
-def test_standard_bar_rejects_on_scores_when_configured():
+def test_each_bar_reports_its_own_reason():
+    """The rejected/ folder must say WHY, not just 'below standard'."""
     settings = Settings()
     settings.min_format_score = 70
     settings.min_quality_score = 60
+    settings.min_professionalism_score = 70
     doc = extract(FIXTURES / "sample_human_cv.pdf")
 
-    decision = decide(make_verdict(format_score=40), doc, settings)
-    assert decision.reason == "below_standard"
-    assert "structure score 40" in decision.explanation
+    bad_structure = decide(
+        make_verdict(format_score=40, structure_issues=["no section headings"]),
+        doc, settings,
+    )
+    assert bad_structure.reason == "poor_structure"
+    assert "no section headings" in bad_structure.explanation
     # Still filed under its role, like every other rejection.
-    assert decision.role_folder == "Data_Scientists"
+    assert bad_structure.role_folder == "Data_Scientists"
 
-    assert decide(make_verdict(quality_score=30), doc, settings).reason == "below_standard"
+    rude = decide(
+        make_verdict(
+            professionalism_score=30,
+            professionalism_issues=["email address is partyanimal99@..."],
+        ),
+        doc, settings,
+    )
+    assert rude.reason == "unprofessional"
+    assert "partyanimal99" in rude.explanation
+
+    thin = decide(make_verdict(quality_score=30), doc, settings)
+    assert thin.reason == "low_quality"
+
     assert decide(make_verdict(), doc, settings).status == "accepted"
+
+
+def test_structure_is_reported_before_professionalism_and_quality():
+    """A CV nobody can read is a structure problem first, whatever else is wrong."""
+    settings = Settings()
+    settings.min_format_score = 70
+    settings.min_professionalism_score = 70
+    settings.min_quality_score = 60
+    doc = extract(FIXTURES / "sample_human_cv.pdf")
+
+    decision = decide(
+        make_verdict(format_score=10, professionalism_score=10, quality_score=10),
+        doc, settings,
+    )
+    assert decision.reason == "poor_structure"
+    # The other failures are still recorded, not silently dropped.
+    assert "Also:" in decision.explanation
 
 
 def test_required_sections_only_fire_on_genuinely_missing_ones():
@@ -180,14 +221,15 @@ def test_required_sections_only_fire_on_genuinely_missing_ones():
 
     no_contact = make_verdict(missing_sections=["contact"])
     decision = decide(no_contact, doc, settings)
-    assert decision.reason == "below_standard"
+    assert decision.reason == "poor_structure"
     assert "contact" in decision.explanation
 
 
-def test_ai_generated_outranks_below_standard():
+def test_ai_generated_outranks_the_quality_bars():
     """An AI CV must be reported as AI, not as merely incomplete."""
     settings = Settings()
     settings.min_format_score = 90
+    settings.min_professionalism_score = 90
     doc = extract(FIXTURES / "sample_human_cv.pdf")
     verdict = make_verdict(ai_generated_score=95, format_score=10)
     assert decide(verdict, doc, settings).reason == "ai_generated"

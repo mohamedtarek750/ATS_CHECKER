@@ -48,6 +48,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Reject a CV whose content score is below this (0 = off).",
     )
     parser.add_argument(
+        "--min-professionalism", type=int, default=None,
+        help="Reject a CV whose professionalism score is below this (0 = off).",
+    )
+    parser.add_argument(
         "--require", default=None,
         help="Comma-separated sections a CV must have, e.g. "
              "'contact,education,skills'. Rejects CVs missing any of them.",
@@ -90,11 +94,14 @@ def make_settings(args: argparse.Namespace) -> Settings:
     if args.strict:
         settings.min_format_score = 70
         settings.min_quality_score = 60
+        settings.min_professionalism_score = 70
         settings.required_sections = ("contact", "education", "skills")
     if args.min_format is not None:
         settings.min_format_score = args.min_format
     if args.min_quality is not None:
         settings.min_quality_score = args.min_quality
+    if args.min_professionalism is not None:
+        settings.min_professionalism_score = args.min_professionalism
     if args.require is not None:
         settings.required_sections = tuple(
             part.strip().lower() for part in args.require.split(",") if part.strip()
@@ -161,6 +168,8 @@ def main(argv: list[str] | None = None) -> int:
         bar.append(f"structure >= {settings.min_format_score}")
     if settings.min_quality_score:
         bar.append(f"content >= {settings.min_quality_score}")
+    if settings.min_professionalism_score:
+        bar.append(f"professionalism >= {settings.min_professionalism_score}")
     if settings.required_sections:
         bar.append("must have " + "/".join(settings.required_sections))
     if bar:

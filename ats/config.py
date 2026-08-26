@@ -83,7 +83,9 @@ REJECT_REASONS: list[str] = [
     "ai_generated",       # written by an LLM
     "unreadable",         # encrypted / scanned with no text / corrupt
     "insufficient_content",  # a CV, but far too thin to evaluate
-    "below_standard",        # a real CV, but under the completeness/quality bar
+    "poor_structure",        # unreadable layout: no sections, no dates, wall of text
+    "unprofessional",        # inappropriate register or presentation
+    "low_quality",           # a real CV, but nothing concrete behind the claims
 ]
 
 # Not a rejection. The CV never reached a verdict (no API key, rate limit, network
@@ -164,6 +166,9 @@ class Settings:
     )
     min_quality_score: int = field(
         default_factory=lambda: _env_int("ATS_MIN_QUALITY_SCORE", 0)
+    )
+    min_professionalism_score: int = field(
+        default_factory=lambda: _env_int("ATS_MIN_PROFESSIONALISM_SCORE", 0)
     )
     # Sections a CV must have. Empty means "do not check".
     required_sections: tuple[str, ...] = field(

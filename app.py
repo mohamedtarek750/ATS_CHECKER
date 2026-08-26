@@ -75,7 +75,9 @@ REASON_LABELS = {
     "ai_generated": "AI-generated",
     "unreadable": "Unreadable file",
     "insufficient_content": "Too little content",
-    "below_standard": "Below the standard bar",
+    "poor_structure": "Unreadable structure",
+    "unprofessional": "Unprofessional presentation",
+    "low_quality": "Nothing concrete behind it",
     "screening_failed": "NOT screened",
     "none": "-",
 }
@@ -143,11 +145,15 @@ def sidebar_settings() -> Settings:
     )
     with st.sidebar.expander("Standard bar (optional)"):
         st.caption(
-            "Rejects CVs that are INCOMPLETE, not ones that look different. "
-            "Leave at 0 to accept any genuine CV."
+            "Each bar rejects under its own reason, so the rejected/ folder says "
+            "why. All are keyed to what the CV contains and how it reads - never "
+            "to which template it used. Leave at 0 to accept any genuine CV."
         )
         settings.min_format_score = st.slider("Minimum structure score", 0, 100, 0, 5)
         settings.min_quality_score = st.slider("Minimum content score", 0, 100, 0, 5)
+        settings.min_professionalism_score = st.slider(
+            "Minimum professionalism score", 0, 100, 0, 5
+        )
         settings.required_sections = tuple(
             st.multiselect(
                 "Sections a CV must have",

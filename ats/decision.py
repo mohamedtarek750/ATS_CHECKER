@@ -99,15 +99,18 @@ def decide(verdict: Verdict, doc: ExtractedDoc, settings: Settings) -> Decision:
             role_folder=folder,
         )
 
-    # 4. A real CV that falls under the completeness bar, when one is configured.
-    #    Deliberately keyed to what the CV CONTAINS, not what it looks like: a
-    #    designer's two-column layout passes, an empty tidy one-pager does not.
-    shortfall = _below_standard(verdict, settings)
-    if shortfall:
+    # 4. Optional quality bars, each reported under its own reason so the
+    #    rejected/ folder says WHY. Keyed to what the CV contains and how it
+    #    reads - never to whether it resembles a preferred template.
+    failures = _bar_failures(verdict, settings)
+    if failures:
+        reason, explanation = failures[0]
+        if len(failures) > 1:
+            explanation += " Also: " + " ".join(e for _, e in failures[1:])
         return Decision(
             status="rejected",
-            reason="below_standard",
-            explanation=shortfall,
+            reason=reason,
+            explanation=explanation,
             role_label=label,
             role_folder=folder,
         )
@@ -121,29 +124,51 @@ def decide(verdict: Verdict, doc: ExtractedDoc, settings: Settings) -> Decision:
     )
 
 
-def _below_standard(verdict: Verdict, settings: Settings) -> str:
-    """Why this CV misses the configured bar, or '' if it clears it."""
-    reasons: list[str] = []
+def _bar_failures(verdict: Verdict, settings: Settings) -> list[tuple[str, str]]:
+    """Which configured bars this CV misses, most specific reason first.
+
+    Returns (reason, explanation) pairs. Each bar is opt-in: with nothing
+    configured this always returns [], and no CV is ever rejected for being
+    different rather than deficient.
+    """
+    failures: list[tuple[str, str]] = []
 
     if settings.min_format_score and verdict.format_score < settings.min_format_score:
-        reasons.append(
-            f"structure score {verdict.format_score} is below the required "
-            f"{settings.min_format_score}"
-        )
-    if settings.min_quality_score and verdict.quality_score < settings.min_quality_score:
-        reasons.append(
-            f"content score {verdict.quality_score} is below the required "
-            f"{settings.min_quality_score}"
-        )
+        detail = "; ".join(verdict.structure_issues[:3]) or verdict.format_notes
+        failures.append((
+            "poor_structure",
+            f"Structure score {verdict.format_score} is below the required "
+            f"{settings.min_format_score}. {detail}".strip(),
+        ))
+
     if settings.required_sections:
-        missing = {s.strip().lower() for s in verdict.missing_sections}
+        missing = {section.strip().lower() for section in verdict.missing_sections}
         absent = [s for s in settings.required_sections if s in missing]
         if absent:
-            reasons.append(f"missing required section(s): {', '.join(absent)}")
+            failures.append((
+                "poor_structure",
+                f"Missing required section(s): {', '.join(absent)}.",
+            ))
 
-    if not reasons:
-        return ""
-    return "Below the configured standard - " + "; ".join(reasons) + "."
+    if (
+        settings.min_professionalism_score
+        and verdict.professionalism_score < settings.min_professionalism_score
+    ):
+        detail = "; ".join(verdict.professionalism_issues[:3])
+        failures.append((
+            "unprofessional",
+            f"Professionalism score {verdict.professionalism_score} is below the "
+            f"required {settings.min_professionalism_score}. {detail}".strip(),
+        ))
+
+    if settings.min_quality_score and verdict.quality_score < settings.min_quality_score:
+        failures.append((
+            "low_quality",
+            f"Content score {verdict.quality_score} is below the required "
+            f"{settings.min_quality_score} - little concrete evidence behind the claims.",
+        ))
+
+    return failures
 
 
 def rejection_for_broken_file(doc: ExtractedDoc, message: str) -> Decision:
