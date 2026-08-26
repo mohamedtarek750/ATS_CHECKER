@@ -1,0 +1,60 @@
+Data Engineer
+Administrative Capital for Urban Development (ACUD)
+New Administrative Capital, Egypt — Full time, on site (5 days)
+Department: Digital Services / Data Platform
+Posted: 26 August 2026 — Applications close: 30 September 2026
+Reference: DE-2026-041
+
+ABOUT THE ROLE
+ACUD is building the data platform behind the new capital's services: utilities
+metering, transport, permits, and facility management. We are looking for a Data
+Engineer to build and own the pipelines that get that data from operational systems
+into a warehouse the analytics and BI teams can actually rely on.
+
+You will work alongside two data analysts and a BI developer. This is a hands-on
+build role, not a supervisory one.
+
+WHAT YOU WILL DO
+- Design, build and maintain batch ETL/ELT pipelines feeding the central warehouse.
+- Model data for analytics: staging, dimensional models, and the tables the BI team
+  builds on.
+- Own data quality — validation, reconciliation, and alerting when a load breaks.
+- Ingest from a mix of sources: SQL Server, REST APIs, IoT meter feeds, and files
+  dropped by contractors.
+- Work with the analysts to turn recurring manual extracts into scheduled pipelines.
+- Document what you build so the next engineer can pick it up.
+
+REQUIREMENTS
+- Bachelor degree in Computer Science, Computer Engineering, Information Systems,
+  or a related technical field.
+- Minimum 3 years of professional experience in a data engineering or backend data
+  role.
+- Strong SQL is essential: complex joins, window functions, CTEs, and the ability
+  to read a query plan and fix a slow query.
+- Solid Python for data work — you must be comfortable writing production code, not
+  only notebooks.
+- Hands-on experience building and maintaining ETL or ELT pipelines in production.
+- Experience with a workflow orchestrator such as Airflow, Dagster, or Azure Data
+  Factory is required.
+- Working knowledge of Git and code review.
+- Good written and spoken English.
+
+PREFERRED
+- Experience with Apache Spark or Databricks is a strong plus.
+- Exposure to cloud data platforms, particularly Azure (Synapse, ADLS, Data Factory).
+- Familiarity with dbt or a similar transformation framework is desirable.
+- Docker and CI/CD pipelines would be an advantage.
+- Experience with streaming or IoT data (Kafka, Event Hubs) is nice to have.
+- Prior work in utilities, smart city, public sector, or large infrastructure
+  projects is appreciated.
+- A relevant certification (DP-203, Databricks Data Engineer Associate) is a bonus.
+- Arabic as a working language is helpful but not required.
+
+WHAT WE OFFER
+Competitive salary reviewed annually, medical insurance covering dependents,
+transport allowance to the New Capital, an annual training and certification budget,
+and a stable long-horizon infrastructure programme to build on.
+
+HOW TO APPLY
+Send your CV to careers@example-acud.eg quoting reference DE-2026-041. Only shortlisted
+candidates will be contacted.

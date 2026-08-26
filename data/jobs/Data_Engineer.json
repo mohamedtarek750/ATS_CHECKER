@@ -1,0 +1,90 @@
+{
+  "title": "Data Engineer",
+  "seniority": "Mid-level",
+  "summary": "Build and own data pipelines to ingest data from operational systems into a central warehouse for analytics and BI teams.",
+  "min_years_experience": 3.0,
+  "requirements": [
+    {
+      "text": "Bachelor degree in Computer Science, Computer Engineering, Information Systems, or a related technical field",
+      "kind": "education",
+      "importance": "must_have"
+    },
+    {
+      "text": "3+ years of professional experience in a data engineering or backend data role",
+      "kind": "experience",
+      "importance": "must_have"
+    },
+    {
+      "text": "Strong SQL",
+      "kind": "skill",
+      "importance": "must_have"
+    },
+    {
+      "text": "Python for data work",
+      "kind": "skill",
+      "importance": "must_have"
+    },
+    {
+      "text": "Hands-on experience building and maintaining ETL or ELT pipelines in production",
+      "kind": "experience",
+      "importance": "must_have"
+    },
+    {
+      "text": "Experience with a workflow orchestrator such as Airflow, Dagster, or Azure Data Factory",
+      "kind": "skill",
+      "importance": "must_have"
+    },
+    {
+      "text": "Git and code review",
+      "kind": "skill",
+      "importance": "must_have"
+    },
+    {
+      "text": "Good written and spoken English",
+      "kind": "language",
+      "importance": "must_have"
+    },
+    {
+      "text": "Apache Spark or Databricks",
+      "kind": "skill",
+      "importance": "nice_to_have"
+    },
+    {
+      "text": "Exposure to cloud data platforms, particularly Azure",
+      "kind": "skill",
+      "importance": "nice_to_have"
+    },
+    {
+      "text": "dbt or a similar transformation framework",
+      "kind": "skill",
+      "importance": "nice_to_have"
+    },
+    {
+      "text": "Docker and CI/CD pipelines",
+      "kind": "skill",
+      "importance": "nice_to_have"
+    },
+    {
+      "text": "Experience with streaming or IoT data",
+      "kind": "experience",
+      "importance": "nice_to_have"
+    },
+    {
+      "text": "Prior work in utilities, smart city, public sector, or large infrastructure projects",
+      "kind": "experience",
+      "importance": "nice_to_have"
+    },
+    {
+      "text": "DP-203 or Databricks Data Engineer Associate certification",
+      "kind": "certification",
+      "importance": "nice_to_have"
+    },
+    {
+      "text": "Arabic as a working language",
+      "kind": "language",
+      "importance": "nice_to_have"
+    }
+  ],
+  "created": "2026-08-26",
+  "source_text": "Data Engineer\nAdministrative Capital for Urban Development (ACUD)\nNew Administrative Capital, Egypt — Full time, on site (5 days)\nDepartment: Digital Services / Data Platform\nPosted: 26 August 2026 — Applications close: 30 September 2026\nReference: DE-2026-041\n\nABOUT THE ROLE\nACUD is building the data platform behind the new capital's services: utilities\nmetering, transport, permits, and facility management. We are looking for a Data\nEngineer to build and own the pipelines that get that data from operational systems\ninto a warehouse the analytics and BI teams can actually rely on.\n\nYou will work alongside two data analysts and a BI developer. This is a hands-on\nbuild role, not a supervisory one.\n\nWHAT YOU WILL DO\n- Design, build and maintain batch ETL/ELT pipelines feeding the central warehouse.\n- Model data for analytics: staging, dimensional models, and the tables the BI team\n  builds on.\n- Own data quality — validation, reconciliation, and alerting when a load breaks.\n- Ingest from a mix of sources: SQL Server, REST APIs, IoT meter feeds, and files\n  dropped by contractors.\n- Work with the analysts to turn recurring manual extracts into scheduled pipelines.\n- Document what you build so the next engineer can pick it up.\n\nREQUIREMENTS\n- Bachelor degree in Computer Science, Computer Engineering, Information Systems,\n  or a related technical field.\n- Minimum 3 years of professional experience in a data engineering or backend data\n  role.\n- Strong SQL is essential: complex joins, window functions, CTEs, and the ability\n  to read a query plan and fix a slow query.\n- Solid Python for data work — you must be comfortable writing production code, not\n  only notebooks.\n- Hands-on experience building and maintaining ETL or ELT pipelines in production.\n- Experience with a workflow orchestrator such as Airflow, Dagster, or Azure Data\n  Factory is required.\n- Working knowledge of Git and code review.\n- Good written and spoken English.\n\nPREFERRED\n- Experience with Apache Spark or Databricks is a strong plus.\n- Exposure to cloud data platforms, particularly Azure (Synapse, ADLS, Data Factory).\n- Familiarity with dbt or a similar transformation framework is desirable.\n- Docker and CI/CD pipelines would be an advantage.\n- Experience with streaming or IoT data (Kafka, Event Hubs) is nice to have.\n- Prior work in utilities, smart city, public sector, or large infrastructure\n  projects is appreciated.\n- A relevant certification (DP-203, Databricks Data Engineer Associate) is a bonus.\n- Arabic as a working language is helpful but not required.\n\nWHAT WE OFFER\nCompetitive salary reviewed annually, medical insurance covering dependents,\ntransport allowance to the New Capital, an annual training and certification budget,\nand a stable long-horizon infrastructure programme to build on.\n\nHOW TO APPLY\nSend your CV to careers@example-acud.eg quoting reference DE-2026-041. Only shortlisted\ncandidates will be contacted."
+}
