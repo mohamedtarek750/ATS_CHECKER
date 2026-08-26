@@ -174,6 +174,67 @@ reliable.
 
 ---
 
+## Screening against a job description
+
+The default mode judges a CV in the abstract. This mode judges it against the job
+you are actually hiring for, which is the question a recruiter is really asking —
+and it produces an answer they can read without a legend.
+
+**1. Turn the advert into a checklist.**
+
+```bash
+python jd_cli.py new --from job_ad.txt
+```
+
+Requirements come out split into **must-have** and **nice-to-have**, and the profile
+is saved to `data/jobs/<name>.json`.
+
+**2. Read the must-have list, and fix it.** This is not a formality. Every must-have
+silently removes every applicant who lacks it, and nobody reviews what was filtered
+out. Ambiguous wording is deliberately parsed as *nice-to-have* for that reason, but
+check it anyway — move anything you would actually hire without.
+
+**3. Screen.**
+
+```bash
+python jd_cli.py screen --job Data_Analyst --input data/inbox
+```
+
+```
+data/output/Data_Analyst/
+├── 1_matched/        every must-have met
+├── 2_partial/        most met, one or two short
+├── 3_not_matched/    several must-haves genuinely absent
+└── 0_not_a_cv/
+```
+
+The per-CV record in `_reports/details/` is requirement-by-requirement, each line
+carrying the words from the CV that justify it:
+
+```
+*MET      Strong SQL (joins, window functions, tuning)   "SQL (advanced - window functions, CTEs)"
+*MET      Dashboarding in Power BI or Tableau            "Power BI / DAX"
+*MET      2 years in a data or reporting role            "Data Analyst - Alameda Retail (Mar 2024 - )"
+ NOT MET  Cloud platforms (Azure or Databricks)
+```
+
+`*` marks a must-have. A rejected candidate who asks why gets a real answer, and the
+employer can stand behind it.
+
+**Two deliberate choices in this mode:**
+
+- **Nice-to-haves never cause a rejection.** They only rank people who already clear
+  the bar. That is what "preferred" means.
+- **A suspected AI-written CV is flagged, not rejected.** The verdict carries
+  `[Possibly AI-written — review it]` and the CV still goes to the shortlist it
+  earned. AI detection is probabilistic, and the cost of a false positive falls on a
+  real applicant, so a human makes that call.
+
+The abstract scores (`quality`, `professionalism`, `structure`) are not used in this
+mode. They are still recorded for tuning, but nothing is decided on them.
+
+---
+
 ## Measuring accuracy
 
 You cannot tell whether a screener is accurate by reading its output — you need

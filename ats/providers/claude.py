@@ -123,11 +123,34 @@ class ClaudeProvider(Provider):
             "output_format": Verdict,
         }
 
+    def structured(self, system: str, user: str, schema, settings):
+        """One structured call with an arbitrary schema."""
+        return self._call(
+            {
+                "model": settings.model,
+                "max_tokens": settings.max_tokens,
+                "system": [
+                    {
+                        "type": "text",
+                        "text": system,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
+                "messages": [{"role": "user", "content": user}],
+                "thinking": {"type": "adaptive"},
+                "output_config": {"effort": settings.effort},
+                "output_format": schema,
+            },
+            settings,
+        )
+
     def screen(self, doc: ExtractedDoc, settings) -> Verdict:
+        return self._call(self._request_kwargs(doc, settings), settings)
+
+    def _call(self, kwargs: dict, settings):
         import anthropic
 
         client = self._get_client()
-        kwargs = self._request_kwargs(doc, settings)
 
         try:
             if self._use_fallbacks:

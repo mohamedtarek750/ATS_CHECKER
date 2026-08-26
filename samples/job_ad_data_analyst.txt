@@ -1,0 +1,26 @@
+Data Analyst — Administrative Capital for Urban Development
+Location: New Administrative Capital, Egypt. Full time, on site.
+
+ABOUT THE ROLE
+We are looking for a Data Analyst to join the Digital Services team. You will own
+the reporting layer used by the operations and commercial teams, and turn messy
+operational data into something people can actually make decisions from.
+
+REQUIREMENTS
+- Bachelor degree in Statistics, Computer Science, Engineering or a related field.
+- Minimum 2 years of professional experience in a data or reporting role.
+- Strong SQL. You must be comfortable with joins, window functions and tuning a
+  slow query.
+- Experience building dashboards in Power BI or Tableau is required.
+- Working knowledge of Excel, including Power Query.
+- Good written English.
+
+PREFERRED
+- Python for data work (pandas) is a plus.
+- Exposure to cloud data platforms such as Azure or Databricks is desirable.
+- Experience in retail, logistics or public sector reporting would be an advantage.
+- A relevant certification (PL-300, Google Data Analytics) is nice to have.
+
+WHAT WE OFFER
+Competitive salary, medical insurance, transport allowance, and a training budget.
+Applications close 30 September 2026. Send your CV to careers@example-acud.eg.

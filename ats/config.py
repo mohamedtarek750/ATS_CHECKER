@@ -86,6 +86,7 @@ REJECT_REASONS: list[str] = [
     "poor_structure",        # unreadable layout: no sections, no dates, wall of text
     "unprofessional",        # inappropriate register or presentation
     "low_quality",           # a real CV, but nothing concrete behind the claims
+    "not_a_match",           # job-description mode: must-haves genuinely absent
 ]
 
 # Not a rejection. The CV never reached a verdict (no API key, rate limit, network

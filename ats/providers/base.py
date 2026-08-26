@@ -82,6 +82,15 @@ class Provider(ABC):
     def screen(self, doc: ExtractedDoc, settings) -> Verdict:
         """Return a verdict, or raise ClassificationError / FatalScreeningError."""
 
+    @abstractmethod
+    def structured(self, system: str, user: str, schema, settings):
+        """One structured call: system + user prompt in, a `schema` instance out.
+
+        Used for anything that is not CV screening - parsing a job description,
+        and screening a CV against one. Keeps those flows from having to know
+        which vendor is configured.
+        """
+
     def missing_credentials_message(self) -> str:
         return (
             f"No {self.name} credentials found. Set {self.credential_env} in your "

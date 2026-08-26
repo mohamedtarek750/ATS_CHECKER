@@ -239,7 +239,7 @@ class GeminiProvider(Provider):
         return isinstance(status, int) and status >= 500
 
     # -- the call ----------------------------------------------------------
-    def _generate(self, client, model: str, contents, config) -> Verdict:
+    def _generate(self, client, model: str, contents, config, schema=Verdict):
         """One model, with retries for throttling and transient server errors."""
         from google.genai import errors
 
@@ -249,7 +249,7 @@ class GeminiProvider(Provider):
                 response = client.models.generate_content(
                     model=model, contents=contents, config=config
                 )
-                return self._parse(response)
+                return self._parse(response, schema)
             except errors.APIError as exc:
                 if not self._is_retryable(exc) or attempt == MAX_ATTEMPTS - 1:
                     raise self._classify_error(exc) from exc
@@ -261,6 +261,26 @@ class GeminiProvider(Provider):
                 raise ClassificationError(f"Gemini call failed: {exc}") from exc
 
         raise ClassificationError("Gemini did not respond")  # pragma: no cover
+
+    def structured(self, system: str, user: str, schema, settings):
+        """One structured call with an arbitrary schema, same failover and pacing."""
+        from google.genai import types
+
+        client = self._get_client()
+        config = types.GenerateContentConfig(
+            system_instruction=system,
+            response_mime_type="application/json",
+            response_schema=schema,
+            temperature=0.0,
+            max_output_tokens=settings.max_tokens,
+        )
+        while True:
+            model = self._resolve_model(settings.model)
+            try:
+                return self._generate(client, model, user, config, schema)
+            except DailyQuotaExhausted:
+                if self._retire(model) is None:
+                    raise
 
     def screen(self, doc: ExtractedDoc, settings) -> Verdict:
         from google.genai import types
@@ -292,9 +312,9 @@ class GeminiProvider(Provider):
                     ) from None
 
     @staticmethod
-    def _parse(response) -> Verdict:
+    def _parse(response, schema=Verdict):
         verdict = getattr(response, "parsed", None)
-        if isinstance(verdict, Verdict):
+        if isinstance(verdict, schema):
             return verdict
 
         # Structured output is requested, but a truncated or blocked response can
@@ -312,6 +332,6 @@ class GeminiProvider(Provider):
                 "max_output_tokens, or the response was filtered."
             )
         try:
-            return Verdict.model_validate_json(raw)
+            return schema.model_validate_json(raw)
         except Exception as exc:  # noqa: BLE001
             raise ClassificationError(f"Could not parse Gemini's verdict: {exc}") from exc

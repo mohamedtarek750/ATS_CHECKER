@@ -33,6 +33,13 @@ def target_dir(decision: Decision, settings: Settings) -> Path:
     # Unscreened files are held on their own, never mixed into rejected/.
     if decision.errored:
         return settings.unscreened_dir
+
+    # Job-description mode addresses its own tree, "<Job>/1_matched". The outcome
+    # folder already carries the verdict, so an accepted/rejected split on top of
+    # it would just bury the CVs one level deeper.
+    if "/" in decision.role_folder:
+        return settings.output_dir.joinpath(*decision.role_folder.split("/"))
+
     base = settings.accepted_dir if decision.accepted else settings.rejected_dir
     return base / decision.role_folder
 

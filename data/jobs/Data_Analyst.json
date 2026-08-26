@@ -1,0 +1,65 @@
+{
+  "title": "Data Analyst",
+  "seniority": "Mid-level",
+  "summary": "Own the reporting layer for operations and commercial teams, transforming operational data into actionable business insights.",
+  "min_years_experience": 2.0,
+  "requirements": [
+    {
+      "text": "Bachelor degree in Statistics, Computer Science, Engineering or a related field",
+      "kind": "education",
+      "importance": "must_have"
+    },
+    {
+      "text": "2 years of professional experience in a data or reporting role",
+      "kind": "experience",
+      "importance": "must_have"
+    },
+    {
+      "text": "Strong SQL (joins, window functions, query tuning)",
+      "kind": "skill",
+      "importance": "must_have"
+    },
+    {
+      "text": "Dashboarding in Power BI or Tableau",
+      "kind": "skill",
+      "importance": "must_have"
+    },
+    {
+      "text": "Excel",
+      "kind": "skill",
+      "importance": "must_have"
+    },
+    {
+      "text": "Power Query",
+      "kind": "skill",
+      "importance": "must_have"
+    },
+    {
+      "text": "Written English",
+      "kind": "language",
+      "importance": "must_have"
+    },
+    {
+      "text": "Python (pandas)",
+      "kind": "skill",
+      "importance": "nice_to_have"
+    },
+    {
+      "text": "Cloud data platforms (Azure or Databricks)",
+      "kind": "skill",
+      "importance": "nice_to_have"
+    },
+    {
+      "text": "Reporting experience in retail, logistics, or public sector",
+      "kind": "experience",
+      "importance": "nice_to_have"
+    },
+    {
+      "text": "PL-300 or Google Data Analytics certification",
+      "kind": "certification",
+      "importance": "nice_to_have"
+    }
+  ],
+  "created": "2026-08-26",
+  "source_text": "Data Analyst — Administrative Capital for Urban Development\nLocation: New Administrative Capital, Egypt. Full time, on site.\n\nABOUT THE ROLE\nWe are looking for a Data Analyst to join the Digital Services team. You will own\nthe reporting layer used by the operations and commercial teams, and turn messy\noperational data into something people can actually make decisions from.\n\nREQUIREMENTS\n- Bachelor degree in Statistics, Computer Science, Engineering or a related field.\n- Minimum 2 years of professional experience in a data or reporting role.\n- Strong SQL. You must be comfortable with joins, window functions and tuning a\n  slow query.\n- Experience building dashboards in Power BI or Tableau is required.\n- Working knowledge of Excel, including Power Query.\n- Good written English.\n\nPREFERRED\n- Python for data work (pandas) is a plus.\n- Exposure to cloud data platforms such as Azure or Databricks is desirable.\n- Experience in retail, logistics or public sector reporting would be an advantage.\n- A relevant certification (PL-300, Google Data Analytics) is nice to have.\n\nWHAT WE OFFER\nCompetitive salary, medical insurance, transport allowance, and a training budget.\nApplications close 30 September 2026. Send your CV to careers@example-acud.eg."
+}

@@ -7,7 +7,8 @@ from dataclasses import dataclass
 
 from .config import LABEL_TO_FOLDER, SCREENING_FAILED, Settings
 from .extract import ExtractedDoc
-from .schema import Verdict
+from .job_profile import JobProfile
+from .schema import MatchVerdict, Verdict
 
 UNDETERMINED = "Undetermined"
 
@@ -195,4 +196,76 @@ def screening_failure(message: str) -> Decision:
         explanation=message,
         role_label=UNDETERMINED,
         role_folder=LABEL_TO_FOLDER[UNDETERMINED],
+    )
+
+
+# --------------------------------------------------------------------------
+# Job-description screening
+# --------------------------------------------------------------------------
+#: Folder per outcome. HR reads these names, so they say what they mean.
+MATCH_FOLDERS = {
+    "strong_match": "1_matched",
+    "partial_match": "2_partial",
+    "not_a_match": "3_not_matched",
+}
+
+
+def decide_match(
+    verdict: MatchVerdict, doc: ExtractedDoc, profile: JobProfile, settings: Settings
+) -> Decision:
+    """Turn a per-requirement check into a filing decision.
+
+    The outcome follows the must-haves, which are the criteria the employer wrote
+    down. Nothing here judges the CV in the abstract.
+    """
+    job = profile.slug
+
+    if not verdict.is_cv or verdict.document_type != "cv_resume":
+        return Decision(
+            status="rejected",
+            reason="not_a_cv",
+            explanation=(
+                f"Not a CV - this looks like a "
+                f"{verdict.document_type.replace('_', ' ')}."
+            ),
+            role_label=profile.title,
+            role_folder=f"{job}/0_not_a_cv",
+        )
+
+    if doc.char_count < settings.min_chars and not doc.needs_vision:
+        return Decision(
+            status="rejected",
+            reason="insufficient_content",
+            explanation=f"Only {doc.char_count} characters of usable content.",
+            role_label=profile.title,
+            role_folder=f"{job}/0_not_a_cv",
+        )
+
+    met, total = verdict.must_haves_met, verdict.must_haves_total
+    missing = [
+        m.requirement
+        for m in verdict.must_have_matches
+        if m.status in {"not_met", "partial"}
+    ]
+
+    headline = f"Meets {met} of {total} must-have requirement(s)."
+    if missing:
+        headline += " Short on: " + "; ".join(missing[:3]) + "."
+    explanation = f"{headline} {verdict.summary}".strip()
+
+    # An AI-looking CV is flagged for a human, never auto-rejected: the detection
+    # is probabilistic and the cost of being wrong falls on a real applicant.
+    if verdict.ai_generated_score >= settings.ai_threshold:
+        explanation = (
+            f"[Possibly AI-written - {verdict.ai_generated_score}/100, review it] "
+            + explanation
+        )
+
+    accepted = verdict.overall in {"strong_match", "partial_match"}
+    return Decision(
+        status="accepted" if accepted else "rejected",
+        reason="none" if accepted else "not_a_match",
+        explanation=explanation,
+        role_label=profile.title,
+        role_folder=f"{job}/{MATCH_FOLDERS[verdict.overall]}",
     )

@@ -20,6 +20,9 @@ from ats.pipeline import (
     write_reports,
 )
 from ats.router import clear_files, clear_results, prepare_tree
+from ats import job_profile as jobs
+from ats.matcher import parse_job_description
+from ats.providers import ClassificationError
 
 st.set_page_config(page_title="ACUD ATS Checker", layout="wide")
 
@@ -309,6 +312,141 @@ def render_clear_results(settings: Settings) -> None:
 
 
 # --------------------------------------------------------------------------
+# Job description
+# --------------------------------------------------------------------------
+def job_tab(settings: Settings):
+    """Paste an advert, review what was extracted, then screen against it.
+
+    The review step is the point: a requirement wrongly marked must-have gets
+    applied to every applicant, and nobody looks at the ones it filtered out.
+    """
+    saved = jobs.available()
+    names = ["(none - screen by role instead)"] + [p.stem for p in saved]
+    chosen = st.selectbox("Screen against job", names, key="job_choice")
+
+    with st.expander("Add a job from its description"):
+        text = st.text_area(
+            "Paste the job advert",
+            height=220,
+            placeholder="Paste the full advert. Requirements are read out of it.",
+        )
+        if st.button("Read requirements", disabled=not text.strip()):
+            problem = preflight(settings)
+            if problem:
+                st.error(problem)
+            else:
+                with st.spinner("Reading the advert..."):
+                    try:
+                        st.session_state["draft_job"] = parse_job_description(
+                            text, settings
+                        )
+                    except ClassificationError as exc:
+                        st.error(str(exc))
+
+        draft = st.session_state.get("draft_job")
+        if draft is not None:
+            st.markdown(f"**{draft.title}** - {draft.seniority}")
+            st.caption(draft.summary)
+            st.warning(
+                f"**Check the {len(draft.must_haves)} must-have(s) before saving.** "
+                "Each one silently removes every applicant who lacks it, and nobody "
+                "reviews what was filtered out. Untick anything you would actually "
+                "accept a candidate without."
+            )
+            kept = 0
+            for index, req in enumerate(list(draft.must_haves)):
+                if st.checkbox(
+                    f"Must have - {req.text}  ({req.kind})",
+                    value=True,
+                    key=f"mh_{index}",
+                ):
+                    kept += 1
+                else:
+                    req.importance = "nice_to_have"
+            if draft.nice_to_haves:
+                st.caption(
+                    "Nice to have: " + ", ".join(r.text for r in draft.nice_to_haves)
+                )
+
+            name = st.text_input("Save as", value=draft.slug)
+            if st.button("Save job profile", type="primary"):
+                path = jobs.save(draft, name)
+                st.session_state.pop("draft_job", None)
+                st.success(f"Saved {path.name} with {kept} must-have(s).")
+                st.rerun()
+
+    if chosen == names[0]:
+        return None
+    try:
+        return jobs.load(next(p for p in saved if p.stem == chosen))
+    except (StopIteration, OSError, ValueError) as exc:
+        st.error(f"Could not load that job profile: {exc}")
+        return None
+
+
+def render_match_results(results: list, profile) -> None:
+    """HR-facing view: requirements met, the evidence, and nothing else."""
+    stats = summarize(results)
+    outcomes = stats["by_outcome"]
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Screened", stats["total"])
+    c2.metric("Shortlist", outcomes.get("strong_match", 0))
+    c3.metric("Partial", outcomes.get("partial_match", 0))
+    c4.metric("Not a match", outcomes.get("not_a_match", 0))
+
+    st.caption(
+        f"Against **{profile.title}** - {len(profile.must_haves)} must-have, "
+        f"{len(profile.nice_to_haves)} nice-to-have"
+    )
+
+    order = {"strong_match": 0, "partial_match": 1, "not_a_match": 2, "": 3}
+    for result in sorted(
+        results, key=lambda r: (order.get(r.overall, 3), -r.must_haves_met)
+    ):
+        if result.errored:
+            st.error(f"{result.filename} - not screened: {result.error}")
+            continue
+
+        label = {
+            "strong_match": "SHORTLIST",
+            "partial_match": "PARTIAL",
+            "not_a_match": "NOT A MATCH",
+        }.get(result.overall, "DROPPED")
+        who = result.candidate_name or result.filename
+        header = (
+            f"{label}  |  {who}  |  "
+            f"{result.must_haves_met}/{result.must_haves_total} must-haves"
+        )
+        with st.expander(header, expanded=result.overall == "strong_match"):
+            st.write(result.explanation)
+            left, right = st.columns(2)
+            if result.met:
+                left.markdown("**Meets**")
+                left.write("\n".join(f"- {m}" for m in result.met))
+            if result.missing:
+                right.markdown("**Short on**")
+                right.write("\n".join(f"- {m}" for m in result.missing))
+            if result.strengths:
+                st.markdown("**Strengths**")
+                st.write("\n".join(f"- {s}" for s in result.strengths))
+            if result.gaps:
+                st.markdown("**Gaps**")
+                st.write("\n".join(f"- {g}" for g in result.gaps))
+            contact = " | ".join(x for x in (result.email, result.phone) if x)
+            if contact:
+                st.caption(contact)
+
+    frame = pd.DataFrame([asdict(r) for r in results])
+    st.download_button(
+        "Download shortlist (CSV)",
+        frame.to_csv(index=False).encode("utf-8-sig"),
+        file_name=f"{profile.slug}_shortlist.csv",
+        mime="text/csv",
+    )
+
+
+# --------------------------------------------------------------------------
 # Results
 # --------------------------------------------------------------------------
 def render_results(results: list, settings: Settings) -> None:
@@ -486,6 +624,7 @@ def main() -> None:
     if note:
         st.success(note)
 
+    profile = job_tab(settings)
     paths = collect_inputs(settings)
     render_clear_results(settings)
 
@@ -518,15 +657,22 @@ def main() -> None:
             progress.progress(done / total, text=f"{done}/{total} screened")
             log.code("\n".join(lines[-12:]))
 
-        results = screen_many(paths, settings, on_progress=on_progress)
+        results = screen_many(
+            paths, settings, on_progress=on_progress, profile=profile
+        )
         progress.progress(1.0, text=f"Done - {len(results)} screened")
         reports = write_reports(results, settings)
         st.session_state["results"] = results
         st.session_state["settings"] = settings
+        st.session_state["profile"] = profile
         st.success(f"Report written to {reports['csv']}")
 
     if st.session_state.get("results"):
-        render_results(st.session_state["results"], st.session_state["settings"])
+        active = st.session_state.get("profile")
+        if active is not None:
+            render_match_results(st.session_state["results"], active)
+        else:
+            render_results(st.session_state["results"], st.session_state["settings"])
     elif disabled:
         st.info("Upload CVs or point at a folder to get started.")
 

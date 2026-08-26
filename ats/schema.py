@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from .config import ROLE_LABELS
+from .job_profile import Importance
 
 RoleLabel = Literal[tuple(ROLE_LABELS)]  # type: ignore[valid-type]
 
@@ -164,3 +165,92 @@ class Verdict(BaseModel):
     reasoning: str = Field(
         description="2-4 sentences explaining the verdict, in English."
     )
+
+
+# --------------------------------------------------------------------------
+# Screening against a job description
+# --------------------------------------------------------------------------
+MatchStatus = Literal["met", "partial", "not_met", "unclear"]
+
+Overall = Literal["strong_match", "partial_match", "not_a_match"]
+
+
+class RequirementMatch(BaseModel):
+    """One requirement, checked against one CV, with the evidence attached."""
+
+    requirement: str = Field(description="The requirement text, copied verbatim.")
+    importance: Importance
+    status: MatchStatus = Field(
+        description=(
+            "'met' - the CV clearly shows it. 'partial' - close but short (asked for "
+            "5 years, has 3; asked for advanced, has intermediate). 'not_met' - "
+            "nothing in the CV supports it. 'unclear' - the CV hints at it but is "
+            "too vague to call, which is a prompt for a human to look, not a fail."
+        )
+    )
+    evidence: str = Field(
+        description=(
+            "The exact words from the CV that justify this, quoted. Empty string "
+            "when the status is not_met. Never paraphrase into something the CV "
+            "does not say - a rejected candidate may ask to see this."
+        )
+    )
+
+
+class MatchVerdict(BaseModel):
+    """What HR sees: does this person meet what the job asked for?"""
+
+    # --- What is this document, and whose? ---
+    document_type: DocumentType
+    is_cv: bool
+    candidate_name: str = Field(description="Full name, or '' if not found.")
+    email: str = Field(description="Primary email, or '' if not found.")
+    phone: str = Field(description="Primary phone, or '' if not found.")
+    current_title: str = Field(description="Their most recent job title, or ''.")
+    years_experience: float = Field(description="Total professional years, 0 for students.")
+
+    # --- The match ---
+    requirement_matches: list[RequirementMatch] = Field(
+        description=(
+            "One entry for EVERY requirement in the job profile, in the same order. "
+            "Never omit one, never invent one."
+        )
+    )
+    overall: Overall = Field(
+        description=(
+            "'strong_match' - every must-have met. 'partial_match' - most must-haves "
+            "met, one or two short or unclear. 'not_a_match' - several must-haves "
+            "genuinely absent. Judge on must-haves; nice-to-haves only separate "
+            "candidates who already clear the bar."
+        )
+    )
+    strengths: list[str] = Field(
+        description="Up to 4 things this candidate brings, beyond just meeting the list."
+    )
+    gaps: list[str] = Field(
+        description="Up to 4 concrete gaps against this job, in plain language."
+    )
+    summary: str = Field(
+        description=(
+            "One or two sentences a recruiter can read and act on, and could show "
+            "the candidate. No scores, no jargon."
+        )
+    )
+
+    # --- Authenticity, kept as a flag rather than a verdict ---
+    ai_generated_score: int = Field(
+        ge=0, le=100, description="Probability the CV's substance was LLM-generated."
+    )
+    ai_signals: list[str] = Field(description="Concrete evidence, quoted from the CV.")
+
+    @property
+    def must_have_matches(self) -> list[RequirementMatch]:
+        return [m for m in self.requirement_matches if m.importance == "must_have"]
+
+    @property
+    def must_haves_met(self) -> int:
+        return sum(1 for m in self.must_have_matches if m.status == "met")
+
+    @property
+    def must_haves_total(self) -> int:
+        return len(self.must_have_matches)

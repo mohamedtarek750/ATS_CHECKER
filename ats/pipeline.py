@@ -21,10 +21,18 @@ from .classifier import (
     has_credentials,
 )
 from .config import SUPPORTED_EXTENSIONS, Settings
-from .decision import Decision, decide, rejection_for_broken_file, screening_failure
+from .decision import (
+    Decision,
+    decide,
+    decide_match,
+    rejection_for_broken_file,
+    screening_failure,
+)
+from .job_profile import JobProfile
+from .matcher import match
 from .extract import extract
 from .router import prepare_tree, route
-from .schema import Verdict
+from .schema import MatchVerdict, Verdict
 
 _route_lock = threading.Lock()
 
@@ -75,6 +83,18 @@ class ScreenResult:
     ai_signals: list[str] = field(default_factory=list)
     human_signals: list[str] = field(default_factory=list)
     explanation: str = ""
+    # --- job-description mode ---
+    job_title: str = ""
+    overall: str = ""
+    must_haves_met: int = 0
+    must_haves_total: int = 0
+    met: list[str] = field(default_factory=list)
+    # Must-haves only. A missing nice-to-have is not a shortfall and must not
+    # be shown as one - it reads as a reason for rejection when it is not.
+    missing: list[str] = field(default_factory=list)
+    missing_optional: list[str] = field(default_factory=list)
+    strengths: list[str] = field(default_factory=list)
+    gaps: list[str] = field(default_factory=list)
     model_used: str = ""
     error: str = ""
     elapsed_seconds: float = 0.0
@@ -86,6 +106,14 @@ class ScreenResult:
     @property
     def errored(self) -> bool:
         return self.status == "error"
+
+    def summary_line(self) -> str:
+        """Short, plain-language line for a terminal shortlist."""
+        if self.missing:
+            return "short on " + ", ".join(self.missing[:2])
+        if self.strengths:
+            return self.strengths[0][:60]
+        return "meets every must-have"
 
 
 def _result_from(
@@ -149,8 +177,38 @@ def discover(inbox: Path) -> list[Path]:
     )
 
 
+def _fill_match(result: ScreenResult, verdict: MatchVerdict, profile: JobProfile) -> None:
+    result.candidate_name = verdict.candidate_name
+    result.email = verdict.email
+    result.phone = verdict.phone
+    result.years_experience = verdict.years_experience
+    result.seniority = verdict.current_title
+    result.ai_generated_score = verdict.ai_generated_score
+    result.ai_signals = verdict.ai_signals
+    result.job_title = profile.title
+    result.overall = verdict.overall
+    result.must_haves_met = verdict.must_haves_met
+    result.must_haves_total = verdict.must_haves_total
+    result.met = [m.requirement for m in verdict.requirement_matches if m.status == "met"]
+    result.missing = [
+        m.requirement
+        for m in verdict.must_have_matches
+        if m.status in {"not_met", "partial"}
+    ]
+    result.missing_optional = [
+        m.requirement
+        for m in verdict.requirement_matches
+        if m.importance == "nice_to_have" and m.status == "not_met"
+    ]
+    result.strengths = verdict.strengths
+    result.gaps = verdict.gaps
+
+
 def screen_one(
-    path: Path, settings: Settings, abort: Abort | None = None
+    path: Path,
+    settings: Settings,
+    abort: Abort | None = None,
+    profile: JobProfile | None = None,
 ) -> ScreenResult:
     """Full screening of a single file. Never raises."""
     started = time.perf_counter()
@@ -175,8 +233,12 @@ def screen_one(
         error = doc.error
     else:
         try:
-            verdict = classify(doc, settings)
-            decision = decide(verdict, doc, settings)
+            if profile is not None:
+                verdict = match(doc, profile, settings)
+                decision = decide_match(verdict, doc, profile, settings)
+            else:
+                verdict = classify(doc, settings)
+                decision = decide(verdict, doc, settings)
             error = ""
             # Read straight after the call: failover is sticky, so this is the
             # model that actually produced this verdict.
@@ -189,7 +251,11 @@ def screen_one(
             if isinstance(exc, FatalScreeningError) and abort is not None:
                 abort.trip(str(exc))
 
-    result = _result_from(path, decision, verdict, time.perf_counter() - started, error)
+    if isinstance(verdict, MatchVerdict):
+        result = _result_from(path, decision, None, time.perf_counter() - started, error)
+        _fill_match(result, verdict, profile)  # type: ignore[arg-type]
+    else:
+        result = _result_from(path, decision, verdict, time.perf_counter() - started, error)
     result.model_used = used
 
     if settings.dry_run:
@@ -220,6 +286,7 @@ def screen_many(
     paths: Iterable[Path],
     settings: Settings,
     on_progress: Callable[[ScreenResult, int, int], None] | None = None,
+    profile: JobProfile | None = None,
 ) -> list[ScreenResult]:
     """Screen files concurrently, reporting each completion through `on_progress`."""
     paths = list(paths)
@@ -233,7 +300,9 @@ def screen_many(
     abort = Abort()
     workers = max(1, min(settings.max_workers, total))
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(screen_one, p, settings, abort): p for p in paths}
+        futures = {
+            pool.submit(screen_one, p, settings, abort, profile): p for p in paths
+        }
         for done, future in enumerate(as_completed(futures), start=1):
             result = future.result()
             results.append(result)
@@ -246,12 +315,17 @@ def screen_many(
 
 CSV_COLUMNS = [
     "filename",
+    "candidate_name",
+    "overall",
+    "must_haves_met",
+    "must_haves_total",
+    "missing",
     "status",
     "reason",
+    "job_title",
     "role_label",
     "role_folder",
     "specialization",
-    "candidate_name",
     "email",
     "phone",
     "major",
@@ -298,7 +372,10 @@ def summarize(results: list[ScreenResult]) -> dict:
     """Counts for the CLI footer and the Streamlit metrics row."""
     by_reason: dict[str, int] = {}
     by_role: dict[str, int] = {}
+    by_outcome: dict[str, int] = {}
     for result in results:
+        if result.overall:
+            by_outcome[result.overall] = by_outcome.get(result.overall, 0) + 1
         if result.accepted:
             by_role[result.role_label] = by_role.get(result.role_label, 0) + 1
         elif not result.errored:
@@ -309,5 +386,6 @@ def summarize(results: list[ScreenResult]) -> dict:
         "rejected": sum(1 for r in results if r.status == "rejected"),
         "errors": sum(1 for r in results if r.errored),
         "accepted_by_role": dict(sorted(by_role.items(), key=lambda kv: -kv[1])),
+        "by_outcome": by_outcome,
         "rejected_by_reason": dict(sorted(by_reason.items(), key=lambda kv: -kv[1])),
     }
