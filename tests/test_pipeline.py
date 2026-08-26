@@ -235,6 +235,61 @@ def test_ai_generated_outranks_the_quality_bars():
     assert decide(verdict, doc, settings).reason == "ai_generated"
 
 
+def test_clear_files_only_removes_cvs_in_that_folder():
+    """The one destructive path in the project. It must stay narrow."""
+    from ats.router import clear_files
+
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        (tmp / "cv.pdf").write_bytes(b"x" * 100)
+        (tmp / "cv2.docx").write_bytes(b"y" * 50)
+        (tmp / ".gitkeep").write_text("")
+        (tmp / "budget.xlsx").write_bytes(b"z")       # not ours, leave it
+        (tmp / "sub").mkdir()
+        (tmp / "sub" / "nested.pdf").write_bytes(b"q")  # not recursive
+
+        deleted, freed = clear_files(tmp)
+
+        assert deleted == 2
+        assert freed == 150
+        assert not (tmp / "cv.pdf").exists()
+        assert (tmp / ".gitkeep").exists(), "git placeholder must survive"
+        assert (tmp / "budget.xlsx").exists(), "unrelated files must survive"
+        assert (tmp / "sub" / "nested.pdf").exists(), "must not recurse"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_clear_files_is_safe_on_a_missing_folder():
+    from ats.router import clear_files
+
+    assert clear_files(Path(tempfile.mkdtemp()) / "nope") == (0, 0)
+
+
+def test_clear_results_leaves_the_inbox_alone():
+    from ats.router import clear_results
+
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        settings = Settings()
+        settings.inbox_dir = tmp / "inbox"
+        settings.output_dir = tmp / "out"
+        settings.inbox_dir.mkdir(parents=True)
+        (settings.inbox_dir / "cv.pdf").write_bytes(b"x")
+        (settings.accepted_dir / "Data_Scientists").mkdir(parents=True)
+        (settings.accepted_dir / "Data_Scientists" / "cv.pdf").write_bytes(b"x")
+        settings.reports_dir.mkdir(parents=True)
+
+        removed = clear_results(settings)
+
+        assert removed >= 2
+        assert not settings.accepted_dir.exists()
+        assert not settings.reports_dir.exists()
+        assert (settings.inbox_dir / "cv.pdf").exists(), "uploads must survive"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_slugify():
     assert slugify("UI/UX Designer") == "UI_UX_Designer"
     assert slugify("!!!") == "Undetermined"

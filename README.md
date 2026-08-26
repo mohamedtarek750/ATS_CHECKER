@@ -88,6 +88,13 @@ streamlit run app.py
 Drag CVs in, or point it at a folder. You get a live log, per-CV detail (scores,
 AI signals, extracted contact info) and a downloadable CSV.
 
+**Clear uploads** under the uploader deletes the staged CVs from `data/inbox/`. It
+asks first and lists what it will delete, because nothing here is recoverable. It
+only removes CV files sitting directly in that folder — `.gitkeep`, unrelated files,
+and subfolders are left alone, and anything already filed into `accepted/` or
+`rejected/` is kept. To throw those away too, use **Danger zone → Clear screening
+results** in the sidebar; it is a separate control with its own confirmation.
+
 ### Command line
 
 ```bash

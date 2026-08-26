@@ -19,7 +19,7 @@ from ats.pipeline import (
     summarize,
     write_reports,
 )
-from ats.router import prepare_tree
+from ats.router import clear_files, clear_results, prepare_tree
 
 st.set_page_config(page_title="ACUD ATS Checker", layout="wide")
 
@@ -195,10 +195,14 @@ def collect_inputs(settings: Settings) -> list[Path]:
     paths: list[Path] = []
 
     with tab_upload:
+        # Rotating the widget key is what actually empties the uploader. Deleting
+        # the files alone leaves Streamlit still showing them, which looks broken.
+        round_no = st.session_state.get("uploader_round", 0)
         uploads = st.file_uploader(
             "Drop CVs here",
             type=["pdf", "docx", "txt", "md", "rtf"],
             accept_multiple_files=True,
+            key=f"uploads_{round_no}",
         )
         if uploads:
             settings.inbox_dir.mkdir(parents=True, exist_ok=True)
@@ -207,6 +211,8 @@ def collect_inputs(settings: Settings) -> list[Path]:
                 target.write_bytes(upload.getbuffer())
                 paths.append(target)
             st.caption(f"{len(paths)} file(s) staged in {settings.inbox_dir}")
+
+        render_clear_uploads(settings)
 
     with tab_folder:
         folder = st.text_input("Folder path", value=str(settings.inbox_dir))
@@ -222,6 +228,84 @@ def collect_inputs(settings: Settings) -> list[Path]:
                 paths = found
 
     return paths
+
+
+def _human_size(num_bytes: int) -> str:
+    for unit in ("B", "KB", "MB"):
+        if num_bytes < 1024 or unit == "MB":
+            return f"{num_bytes:.0f} {unit}" if unit == "B" else f"{num_bytes:.1f} {unit}"
+        num_bytes /= 1024
+    return f"{num_bytes:.1f} MB"
+
+
+def render_clear_uploads(settings: Settings) -> None:
+    """Delete the staged CVs. Two steps, because this is not undoable."""
+    staged = [
+        f for f in settings.inbox_dir.glob("*")
+        if f.is_file() and f.suffix.lower() in {".pdf", ".docx", ".txt", ".md", ".rtf"}
+    ] if settings.inbox_dir.is_dir() else []
+
+    if not staged:
+        return
+
+    total = sum(f.stat().st_size for f in staged)
+    st.divider()
+    left, right = st.columns([3, 1])
+    left.caption(
+        f"{len(staged)} file(s) currently staged in `{settings.inbox_dir}` "
+        f"({_human_size(total)})"
+    )
+
+    if not st.session_state.get("confirm_clear"):
+        if right.button("Clear uploads", use_container_width=True):
+            st.session_state["confirm_clear"] = True
+            st.rerun()
+        return
+
+    st.warning(
+        f"Delete all {len(staged)} staged file(s) from `{settings.inbox_dir}`? "
+        f"This cannot be undone. Anything already filed into accepted/ or "
+        f"rejected/ is kept."
+    )
+    with st.expander("Show what will be deleted"):
+        for f in sorted(staged):
+            st.text(f"  {f.name}  ({_human_size(f.stat().st_size)})")
+
+    yes, no = st.columns(2)
+    if yes.button("Yes, delete them", type="primary", use_container_width=True):
+        deleted, freed = clear_files(settings.inbox_dir)
+        st.session_state["confirm_clear"] = False
+        st.session_state["uploader_round"] = st.session_state.get("uploader_round", 0) + 1
+        st.session_state.pop("results", None)
+        st.session_state["cleared_note"] = f"Deleted {deleted} file(s), {_human_size(freed)}."
+        st.rerun()
+    if no.button("Cancel", use_container_width=True):
+        st.session_state["confirm_clear"] = False
+        st.rerun()
+
+
+def render_clear_results(settings: Settings) -> None:
+    """Separate control, separate confirmation - this throws away screening work."""
+    with st.sidebar.expander("Danger zone"):
+        st.caption(
+            "Removes accepted/, rejected/, _unscreened/ and _reports/ under "
+            f"`{settings.output_dir}`. Staged uploads are not touched."
+        )
+        if not st.session_state.get("confirm_wipe"):
+            if st.button("Clear screening results"):
+                st.session_state["confirm_wipe"] = True
+                st.rerun()
+            return
+        st.warning("Delete all sorted CVs and reports? This cannot be undone.")
+        if st.button("Yes, delete results", type="primary"):
+            removed = clear_results(settings)
+            st.session_state["confirm_wipe"] = False
+            st.session_state.pop("results", None)
+            st.session_state["cleared_note"] = f"Removed {removed} output folder(s)."
+            st.rerun()
+        if st.button("Cancel wipe"):
+            st.session_state["confirm_wipe"] = False
+            st.rerun()
 
 
 # --------------------------------------------------------------------------
@@ -397,7 +481,13 @@ def main() -> None:
         )
 
     settings = sidebar_settings()
+
+    note = st.session_state.pop("cleared_note", None)
+    if note:
+        st.success(note)
+
     paths = collect_inputs(settings)
+    render_clear_results(settings)
 
     st.divider()
     # Block the run outright rather than letting every CV fail one by one.
