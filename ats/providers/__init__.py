@@ -14,11 +14,14 @@ from .base import (
 )
 from .claude import ClaudeProvider
 from .gemini import GeminiProvider
+from .ollama import OllamaProvider
 
 PROVIDER_CLASSES: dict[str, type[Provider]] = {
     "gemini": GeminiProvider,
     "claude": ClaudeProvider,
     "anthropic": ClaudeProvider,   # alias
+    "ollama": OllamaProvider,
+    "local": OllamaProvider,       # alias
 }
 
 _instances: dict[str, Provider] = {}

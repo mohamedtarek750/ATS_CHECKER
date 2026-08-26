@@ -99,10 +99,13 @@ SCREENING_FAILED = "screening_failed"
 # --------------------------------------------------------------------------
 # Declared here rather than in ats.providers so that config stays importable from
 # the provider modules without a circular import.
-PROVIDER_NAMES: list[str] = ["gemini", "claude"]
+PROVIDER_NAMES: list[str] = ["offline", "ollama", "gemini", "claude"]
 
 #: Model used when ATS_MODEL is not set.
 DEFAULT_MODELS: dict[str, str] = {
+    "offline": "rules",
+    "ollama": "qwen3:4b",
+    "local": "qwen3:4b",
     "gemini": "gemini-3.6-flash",
     "claude": "claude-opus-5",
     "anthropic": "claude-opus-5",
@@ -110,6 +113,8 @@ DEFAULT_MODELS: dict[str, str] = {
 
 #: Models offered in the UI, best first.
 PROVIDER_MODELS: dict[str, list[str]] = {
+    "offline": ["rules"],
+    "ollama": ["qwen3:4b", "llama3.2:3b", "qwen3:8b", "mistral:7b"],
     # Google closes older models to new API keys, so a hardcoded version goes
     # stale and 404s. The `-latest` aliases track whatever is current; pin a
     # numbered model only when you need reproducibility across months.
@@ -124,7 +129,11 @@ PROVIDER_MODELS: dict[str, list[str]] = {
 }
 
 #: Gemini's free tier is limited per minute, so extra workers just queue.
-DEFAULT_WORKERS: dict[str, int] = {"gemini": 2, "claude": 4, "anthropic": 4}
+#: Ollama serialises on one machine, so extra workers only queue.
+DEFAULT_WORKERS: dict[str, int] = {
+    "offline": 8, "ollama": 1, "local": 1,
+    "gemini": 2, "claude": 4, "anthropic": 4,
+}
 
 
 def _env_int(name: str, default: int) -> int:

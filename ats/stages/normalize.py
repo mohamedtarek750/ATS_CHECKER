@@ -18,6 +18,7 @@ from ..models import CandidateProfile
 from ..providers import ClassificationError, FatalScreeningError, get_provider
 from ..providers.base import MAX_TEXT_CHARS
 from ..skills import normalize_all
+from . import offline
 from .parse import ParsedDoc
 
 SYSTEM_PROMPT = """\
@@ -93,6 +94,14 @@ def normalize_one(doc: ParsedDoc, settings: Settings) -> NormalizeResult:
     cached = store.get(settings, doc.key)
     if cached is not None:
         return NormalizeResult(doc=doc, profile=cached, from_cache=True)
+
+    if settings.provider == "offline":
+        # Rules only. No network, no key, no quota - so this path can never be the
+        # reason a batch stops half way.
+        profile = offline.extract_profile(doc)
+        profile.skills = normalize_all(profile.skills)
+        store.put(settings, doc.key, profile, doc.path, "rules")
+        return NormalizeResult(doc=doc, profile=profile)
 
     try:
         provider = get_provider(settings.provider)
@@ -179,5 +188,9 @@ def normalize_many(
 
 def estimate_seconds(pending: int, settings: Settings) -> float:
     """Rough wall-clock for a batch, so a long run can be warned about up front."""
+    if settings.provider == "offline":
+        return pending * 0.05          # rules run at about 20 CVs a second
+    if settings.provider in {"ollama", "local"}:
+        return pending * 60.0          # a CPU-bound local model, roughly
     rpm = 10 if settings.provider == "gemini" else 60
     return max(pending * 12.0 / max(1, settings.max_workers), pending * 60.0 / rpm)

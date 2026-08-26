@@ -128,6 +128,45 @@ is a recognised skill name, so `Power BI` is not satisfied by `Power Query`.
 
 ---
 
+## How CVs get read
+
+Stage 2 is the only per-CV cost, and you choose what pays it. This is a cost and
+privacy decision, not a quality dial.
+
+| `ATS_PROVIDER` | Speed | Limit | Data leaves the machine |
+|---|---|---|---|
+| **`offline`** | ~15 CVs/second | none | **no** |
+| `ollama` | ~1 CV/minute on a CPU | none | **no** |
+| `gemini` | ~5 CVs/minute | ~20/day free | yes |
+| `claude` | ~5 CVs/minute | paid, no daily cap | yes |
+
+```bash
+python hr_cli.py intake --provider offline --input data/inbox
+```
+
+**`offline` uses no model at all** — regex, section detection, and the skills table.
+It reads a thousand CVs in about a minute, needs no key, and cannot be stopped by a
+quota. It is weaker than a model on unusual layouts and it does not attempt the
+AI-written check at all (rules cannot judge prose, and reporting a number there
+would be inventing one). What it does get is exactly what stages 4 and 5 consume:
+contact details, dates, degrees, and the skills vocabulary — which is dictionary
+lookup rather than comprehension.
+
+**`ollama` runs a real model on your own machine.** No key, no quota, nothing sent
+anywhere. Install Ollama, `ollama pull qwen3:4b`, and set `ATS_PROVIDER=ollama`. On
+a CPU expect around a minute per CV, so it suits an overnight batch.
+
+> **A note on "let's train our own model."** Don't. Training one from scratch is
+> months of work and serious hardware, to end up well behind a model you can
+> download today. If the goal is "no API and no quota", `offline` and `ollama` both
+> get you there this afternoon.
+
+**A practical shape for a large intake:** run everything through `offline`, shortlist,
+then re-read only the top candidates with a model — `hr_cli.py pool --forget` is not
+needed, since re-reading a CV with a better provider simply updates its record.
+
+---
+
 ## Scale
 
 | | |
@@ -206,6 +245,8 @@ All six run offline against stubbed providers — no API key needed.
 
 | | |
 |---|---|
+| `ATS_PROVIDER=offline` | No model. Instant, unlimited, private. The right default at volume. |
+| `ATS_PROVIDER=ollama` | A model on this machine. Unlimited and private, about a minute per CV on a CPU. |
 | `ATS_PROVIDER=gemini` | Free tier. `gemini-3.6-flash` by default, failing over across models as daily quotas run out. |
 | `ATS_PROVIDER=claude` | Paid. Stronger on the AI-generation judgement specifically. |
 

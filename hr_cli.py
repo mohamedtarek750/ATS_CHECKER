@@ -10,12 +10,13 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
 import sys
 import time
 from pathlib import Path
 
 from ats import screening, store
-from ats.config import Settings
+from ats.config import PROVIDER_NAMES, Settings
 from ats.pipeline import preflight
 from ats.providers import ClassificationError
 from ats.stages import jobspec, parse, rank
@@ -28,6 +29,8 @@ if hasattr(sys.stdout, "reconfigure"):
 # Stages 1-2
 # --------------------------------------------------------------------------
 def cmd_intake(args: argparse.Namespace) -> int:
+    if args.provider:
+        os.environ["ATS_PROVIDER"] = args.provider
     settings = Settings()
     if args.workers:
         settings.max_workers = args.workers
@@ -221,6 +224,11 @@ def main(argv: list[str] | None = None) -> int:
     intake = sub.add_parser("intake", help="Stages 1-2: read CVs into the pool.")
     intake.add_argument("-i", "--input", default=None)
     intake.add_argument("--workers", type=int, default=None)
+    intake.add_argument(
+        "--provider", default=None, choices=PROVIDER_NAMES,
+        help="offline = rules, no key and no quota. ollama = a model on this "
+             "machine. gemini/claude = an API.",
+    )
     intake.set_defaults(func=cmd_intake)
 
     job = sub.add_parser("job", help="Stage 3: turn a job advert into a checklist.")

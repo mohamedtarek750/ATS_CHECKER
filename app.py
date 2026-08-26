@@ -21,7 +21,7 @@ import pandas as pd
 import streamlit as st
 
 from ats import screening, store
-from ats.config import Settings
+from ats.config import PROVIDER_NAMES, Settings
 from ats.pipeline import preflight
 from ats.providers import ClassificationError
 from ats.router import clear_files
@@ -63,6 +63,48 @@ STATUS_STYLE = {
     "unclear": ("?", "Needs a look"),
     "not_met": ("✗", "Not found"),
 }
+
+
+PROVIDER_LABELS = {
+    "offline": "No AI - rules only (instant, unlimited, nothing leaves this machine)",
+    "ollama": "A model on this machine (unlimited, slower, private)",
+    "gemini": "Google Gemini (free tier - about 20 CVs a day)",
+    "claude": "Anthropic Claude (paid)",
+}
+
+PROVIDER_NOTE = {
+    "offline": (
+        "Reads about 15 CVs a second with no key and no quota. Weaker than a model "
+        "on unusual layouts and it cannot flag AI-written CVs, but it gets contact "
+        "details, dates, degrees and the skills vocabulary - which is what the "
+        "matching actually uses. The right default for a large intake."
+    ),
+    "ollama": (
+        "Needs Ollama installed and a model pulled. No key, no quota, no data "
+        "leaving this machine. On a CPU expect roughly a minute per CV."
+    ),
+    "gemini": (
+        "Best quality of the free options, but the daily quota is small. Google's "
+        "free tier may also use submitted content to improve their models."
+    ),
+    "claude": "Paid, no daily cap, strongest on the AI-written check.",
+}
+
+
+def how_to_read(settings: Settings) -> Settings:
+    """How CVs get read. Not a quality dial - a cost and privacy choice."""
+    current = PROVIDER_NAMES.index(settings.provider) if settings.provider in PROVIDER_NAMES else 0
+    chosen = st.selectbox(
+        "How should CVs be read?",
+        PROVIDER_NAMES,
+        index=current,
+        format_func=lambda name: PROVIDER_LABELS.get(name, name),
+    )
+    if chosen != settings.provider:
+        os.environ["ATS_PROVIDER"] = chosen
+        settings = Settings()
+    st.caption(PROVIDER_NOTE.get(chosen, ""))
+    return settings
 
 
 def load_secrets() -> None:
@@ -111,6 +153,8 @@ def tab_cvs(settings: Settings) -> None:
         "Each CV is read once and kept. Adding the same person again costs nothing, "
         "and every future vacancy is matched against what is already here."
     )
+
+    settings = how_to_read(settings)
 
     round_no = st.session_state.get("uploader_round", 0)
     uploads = st.file_uploader(

@@ -20,6 +20,8 @@ from .schema import Verdict
 def has_credentials(settings: Settings | None = None) -> bool:
     """True when the configured provider can authenticate."""
     settings = settings or Settings()
+    if settings.provider == "offline":
+        return True          # rules need nothing
     try:
         return get_provider(settings.provider).has_credentials()
     except KeyError:
@@ -29,6 +31,8 @@ def has_credentials(settings: Settings | None = None) -> bool:
 def credentials_message(settings: Settings | None = None) -> str:
     """What to tell the user when credentials are missing or the provider is wrong."""
     settings = settings or Settings()
+    if settings.provider == "offline":
+        return ""
     try:
         return get_provider(settings.provider).missing_credentials_message()
     except KeyError as exc:
