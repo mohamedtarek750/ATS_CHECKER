@@ -12,3 +12,5 @@ tests/fixtures/real_student_cv.pdf
 
 # Streamlit secrets are per-deployment, never committed
 .streamlit/secrets.toml
+data/jobs/
+data/output/candidates.db
