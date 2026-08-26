@@ -235,6 +235,33 @@ mode. They are still recorded for tuning, but nothing is decided on them.
 
 ---
 
+## Large batches, and runs that get interrupted
+
+Every result is written to `_reports/screened.jsonl` the moment it is produced, and
+a re-run skips anything already recorded there. A batch that dies half way — a
+browser tab that slept, a dropped connection, a spent daily quota, a closed laptop —
+keeps everything it finished. Run the same command again and it screens only what is
+actually left.
+
+```bash
+python jd_cli.py screen --job Data_Analyst --input data/inbox
+```
+```
+14 CV(s) already screened for this job - resuming with 86.
+```
+
+Add `--restart` to ignore the ledger and screen everything again. A CV recorded as
+an **error** is never treated as done: a screening that failed on a spent quota has
+not happened, so it is retried.
+
+**For anything over ~40 CVs, use the terminal rather than the browser.** On the free
+tier the pacing alone means 100 CVs take about ten minutes, and Streamlit ends the
+script if the tab sleeps or the websocket drops. The ledger means you lose nothing
+either way, but the terminal simply does not have the problem. The UI says this and
+prints the exact command when a batch is large enough to matter.
+
+---
+
 ## Measuring accuracy
 
 You cannot tell whether a screener is accurate by reading its output — you need

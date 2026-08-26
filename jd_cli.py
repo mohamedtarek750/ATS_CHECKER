@@ -122,6 +122,14 @@ def cmd_screen(args: argparse.Namespace) -> int:
         print(f"Cannot start: {problem}")
         return 2
 
+    from ats import ledger
+
+    done = ledger.load_done(settings, profile.title) if not args.restart else {}
+    remaining = [p for p in paths if ledger.key_for(p) not in done]
+    if done and len(remaining) < len(paths):
+        print(f"{len(paths) - len(remaining)} CV(s) already screened for this job - "
+              f"resuming with {len(remaining)}. Use --restart to redo them.")
+
     print(f"Screening {len(paths)} CV(s) against: {profile.title}")
     print(f"  {len(profile.must_haves)} must-have, {len(profile.nice_to_haves)} nice-to-have")
     print(f"  Model: {settings.model} [{settings.provider}]\n")
@@ -139,7 +147,10 @@ def cmd_screen(args: argparse.Namespace) -> int:
                 mark, detail = "DROP ", "not a CV"
         print(f"  [{done}/{total}] {mark}  {result.filename[:44]:<46} {detail}")
 
-    results = screen_many(paths, settings, on_progress=on_progress, profile=profile)
+    results = screen_many(
+        paths, settings, on_progress=on_progress, profile=profile,
+        resume=not args.restart,
+    )
     stats = summarize(results)
 
     print(f"\n  Shortlisted : {stats['by_outcome'].get('strong_match', 0)}")
@@ -184,6 +195,10 @@ def main(argv: list[str] | None = None) -> int:
     scr.add_argument("-o", "--output", default=None)
     scr.add_argument("--workers", type=int, default=None)
     scr.add_argument("--dry-run", action="store_true")
+    scr.add_argument(
+        "--restart", action="store_true",
+        help="Re-screen everything, ignoring what previous runs already did.",
+    )
     scr.set_defaults(func=cmd_screen)
 
     args = parser.parse_args(argv)

@@ -9,6 +9,7 @@ import time
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
+from dataclasses import fields as dataclass_fields
 from datetime import datetime
 from pathlib import Path
 
@@ -29,6 +30,7 @@ from .decision import (
     screening_failure,
 )
 from .job_profile import JobProfile
+from . import ledger
 from .matcher import match
 from .extract import extract
 from .router import prepare_tree, route
@@ -151,6 +153,12 @@ def _result_from(
         result.ai_signals = verdict.ai_signals
         result.human_signals = verdict.human_signals
     return result
+
+
+def _result_from_row(row: dict) -> ScreenResult:
+    """Rebuild a result recorded by an earlier run."""
+    fields = {f.name for f in dataclass_fields(ScreenResult)}
+    return ScreenResult(**{k: v for k, v in row.items() if k in fields})
 
 
 def preflight(settings: Settings) -> str:
@@ -287,14 +295,33 @@ def screen_many(
     settings: Settings,
     on_progress: Callable[[ScreenResult, int, int], None] | None = None,
     profile: JobProfile | None = None,
+    resume: bool = True,
 ) -> list[ScreenResult]:
-    """Screen files concurrently, reporting each completion through `on_progress`."""
+    """Screen files concurrently, reporting each completion through `on_progress`.
+
+    Every result is written to the ledger the moment it is produced, and by default
+    a CV already recorded there is not screened again. A run that dies half way -
+    a dropped browser connection, a spent quota, a closed laptop - therefore keeps
+    everything it finished, and re-running costs only what is genuinely left.
+    """
     paths = list(paths)
     prepare_tree(settings)
     results: list[ScreenResult] = []
-    total = len(paths)
 
+    already: dict[str, dict] = {}
+    if resume and not settings.dry_run:
+        already = ledger.load_done(settings, profile.title if profile else "")
+        if already:
+            pending = [p for p in paths if ledger.key_for(p) not in already]
+            for path in paths:
+                row = already.get(ledger.key_for(path))
+                if row is not None:
+                    results.append(_result_from_row(row))
+            paths = pending
+
+    total = len(paths)
     if total == 0:
+        results.sort(key=lambda r: (r.status, r.role_folder, r.filename))
         return results
 
     abort = Abort()
@@ -306,6 +333,8 @@ def screen_many(
         for done, future in enumerate(as_completed(futures), start=1):
             result = future.result()
             results.append(result)
+            if not settings.dry_run:
+                ledger.record(settings, result, ledger.key_for(futures[future]))
             if on_progress:
                 on_progress(result, done, total)
 

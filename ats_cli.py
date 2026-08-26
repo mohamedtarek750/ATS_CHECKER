@@ -62,6 +62,10 @@ def build_parser() -> argparse.ArgumentParser:
              "--require contact,education,skills.",
     )
     parser.add_argument(
+        "--restart", action="store_true",
+        help="Ignore the ledger and re-screen every file, including ones already done.",
+    )
+    parser.add_argument(
         "--list-models", action="store_true",
         help="Print the models this provider's key can actually call, then exit.",
     )
@@ -181,7 +185,9 @@ def main(argv: list[str] | None = None) -> int:
         detail = result.role_label if result.accepted else result.reason
         print(f"  [{done}/{total}] {mark}  {result.filename}  ->  {detail}")
 
-    results = screen_many(paths, settings, on_progress=on_progress)
+    results = screen_many(
+        paths, settings, on_progress=on_progress, resume=not args.restart
+    )
     stats = summarize(results)
 
     print(

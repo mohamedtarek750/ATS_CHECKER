@@ -20,6 +20,7 @@ from ats.pipeline import (
     write_reports,
 )
 from ats.router import clear_files, clear_results, prepare_tree
+from ats import ledger
 from ats import job_profile as jobs
 from ats.matcher import parse_job_description
 from ats.providers import ClassificationError
@@ -634,8 +635,40 @@ def main() -> None:
     if problem:
         st.error(problem)
 
+    # Anything already screened in an earlier run is skipped, so an interrupted
+    # batch is resumed rather than repeated.
+    done = ledger.load_done(settings, profile.title if profile else "")
+    todo = [p for p in paths if ledger.key_for(p) not in done]
+    if paths and len(todo) < len(paths):
+        st.info(
+            f"{len(paths) - len(todo)} of these were screened in an earlier run and "
+            f"will be reused. {len(todo)} left to screen."
+        )
+        if st.checkbox("Screen all of them again from scratch"):
+            ledger.clear(settings)
+            st.rerun()
+
+    # A long batch in a browser is fragile: the run ends if the tab sleeps or the
+    # connection drops. The ledger means nothing is lost, but the terminal is the
+    # right tool at this size.
+    if len(todo) > 40:
+        minutes = max(1, round(len(todo) / 10))
+        st.warning(
+            f"{len(todo)} CVs will take roughly {minutes} minutes, and a browser tab "
+            f"that sleeps or disconnects will end the run. Progress is saved as it "
+            f"goes, so nothing is lost either way - but for a batch this size run it "
+            f"in a terminal instead:"
+        )
+        command = (
+            f'python jd_cli.py screen --job {profile.slug} --input "{settings.inbox_dir}"'
+            if profile
+            else f'python ats_cli.py --input "{settings.inbox_dir}"'
+        )
+        st.code(command, language="bash")
+
     disabled = not paths or bool(problem)
-    if st.button(f"Screen {len(paths)} CV(s)", type="primary", disabled=disabled):
+    label = f"Screen {len(todo)} CV(s)" if todo else "Nothing left to screen"
+    if st.button(label, type="primary", disabled=disabled or not todo):
         folders = (
             [r["folder"] for r in ROLE_TAXONOMY]
             if st.session_state.get("scaffold")
