@@ -11,7 +11,7 @@ pool of thousands can be screened against a new job in under a second.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import store
@@ -22,6 +22,48 @@ from .stages import normalize, parse, rank
 
 
 @dataclass
+class IntakeEvent:
+    """One file, finished. Enough for a caller to show a live status line.
+
+    Reporting only the extracted name hid the two things worth watching: which
+    file each result came from, and which files failed.
+    """
+
+    filename: str
+    status: str          # "added" | "known" | "not_a_cv" | "unreadable" | "failed"
+    name: str = ""       # the candidate, once known
+    headline: str = ""
+    detail: str = ""     # why, when something went wrong
+
+    #: For a terminal or a log line.
+    LABELS = {
+        "added": "OK  ",
+        "known": "SKIP",
+        "not_a_cv": "DROP",
+        "unreadable": "BAD ",
+        "failed": "FAIL",
+    }
+
+    @property
+    def label(self) -> str:
+        return self.LABELS.get(self.status, self.status)
+
+    @property
+    def summary(self) -> str:
+        if self.status == "added":
+            who = self.name or "(no name found)"
+            return f"{who} - {self.headline}" if self.headline else who
+        if self.status == "known":
+            return "already in the pool"
+        if self.status == "not_a_cv":
+            return f"not a CV ({self.detail})" if self.detail else "not a CV"
+        return self.detail or self.status
+
+    def line(self) -> str:
+        return f"{self.label}  {self.filename[:40]:<42} {self.summary[:60]}"
+
+
+@dataclass
 class IntakeReport:
     added: int = 0
     already_known: int = 0
@@ -29,6 +71,7 @@ class IntakeReport:
     failed: int = 0
     not_cvs: int = 0
     errors: list[tuple[str, str]] = None  # (filename, why)
+    events: list = field(default_factory=list)   # every file, with its outcome
 
     def __post_init__(self) -> None:
         if self.errors is None:
@@ -42,7 +85,7 @@ class IntakeReport:
 def intake(
     paths: list[Path],
     settings: Settings,
-    on_progress: Callable[[str, int, int], None] | None = None,
+    on_progress: Callable[[IntakeEvent, int, int], None] | None = None,
 ) -> IntakeReport:
     """Stages 1-2. Read every file and store what it contains.
 
@@ -66,10 +109,30 @@ def intake(
             report.unreadable += 1
             report.errors.append((doc.path.name, doc.error))
 
+    def event_for(result: normalize.NormalizeResult) -> IntakeEvent:
+        filename = result.doc.path.name
+        if not result.doc.ok:
+            return IntakeEvent(filename, "unreadable", detail=result.doc.error)
+        if result.error:
+            return IntakeEvent(filename, "failed", detail=result.error)
+        profile = result.profile
+        if profile is None:
+            return IntakeEvent(filename, "failed", detail="no record produced")
+        if not profile.is_cv:
+            return IntakeEvent(
+                filename, "not_a_cv",
+                detail=profile.document_type.replace("_", " "),
+            )
+        return IntakeEvent(
+            filename,
+            "known" if result.from_cache else "added",
+            name=profile.full_name,
+            headline=profile.headline,
+        )
+
     def progress(result: normalize.NormalizeResult, done: int, total: int) -> None:
         if on_progress:
-            who = result.profile.full_name if result.profile else result.doc.path.name
-            on_progress(who or result.doc.path.name, done, total)
+            on_progress(event_for(result), done, total)
 
     results = normalize.normalize_many(docs, settings, on_progress=progress)
 
@@ -85,6 +148,7 @@ def intake(
             report.added += 1
         if result.profile is not None and not result.profile.is_cv:
             report.not_cvs += 1
+        report.events.append(event_for(result))
 
     return report
 

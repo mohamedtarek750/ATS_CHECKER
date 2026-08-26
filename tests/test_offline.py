@@ -146,6 +146,53 @@ def test_internships_do_not_count_as_professional_years():
 # --------------------------------------------------------------------------
 # Speed - the reason this path exists
 # --------------------------------------------------------------------------
+def test_every_file_reports_its_own_outcome():
+    """A scan must say what happened to each file, not just how many succeeded."""
+    tmp = Path(tempfile.mkdtemp())
+    settings = offline_settings(tmp)
+    seen = []
+    try:
+        report = screening.intake(
+            [
+                SAMPLES / "01_data_analyst_omar.pdf",
+                SAMPLES / "09_cover_letter.pdf",
+                SAMPLES / "11_job_posting.txt",
+            ],
+            settings,
+            on_progress=lambda event, done, total: seen.append(event),
+        )
+
+        assert len(seen) == 3, "one event per file, as it finishes"
+        assert len(report.events) == 3, "and kept on the report afterwards"
+
+        by_file = {e.filename: e for e in report.events}
+        cv = by_file["01_data_analyst_omar.pdf"]
+        assert cv.status == "added"
+        assert "Omar" in cv.name
+        assert cv.summary, "an added CV says who it is"
+
+        letter = by_file["09_cover_letter.pdf"]
+        assert letter.status == "not_a_cv"
+        assert "cover letter" in letter.summary
+
+        # Every event renders a line a terminal can print.
+        for event in report.events:
+            assert event.filename in event.line()
+            assert event.label.strip()
+    finally:
+        store.close_all()
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_a_failed_file_says_why_next_to_its_name():
+    from ats.screening import IntakeEvent
+
+    event = IntakeEvent("broken.pdf", "failed", detail="daily quota is used up")
+    assert "broken.pdf" in event.line()
+    assert "quota" in event.line()
+    assert event.label == "FAIL"
+
+
 def test_a_large_intake_is_fast_and_free():
     tmp = Path(tempfile.mkdtemp())
     inbox = tmp / "inbox"

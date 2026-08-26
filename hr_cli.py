@@ -62,8 +62,8 @@ def cmd_intake(args: argparse.Namespace) -> int:
 
     started = time.time()
 
-    def on_progress(name: str, done: int, total: int) -> None:
-        print(f"  [{done}/{total}] {name[:56]}")
+    def on_progress(event, done: int, total: int) -> None:
+        print(f"  [{done}/{total}] {event.line()}")
 
     report = screening.intake(paths, settings, on_progress=on_progress)
 

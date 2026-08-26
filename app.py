@@ -57,6 +57,22 @@ def _folder_stamp(folder: Path) -> float:
     return round(sum(e.stat().st_mtime for e in entries) + len(entries), 3)
 
 
+STATUS_ICON = {
+    "added": "\u2713",
+    "known": "\u00b7",
+    "not_a_cv": "\u2013",
+    "unreadable": "!",
+    "failed": "\u2717",
+}
+
+STATUS_WORD = {
+    "added": "Read",
+    "known": "Already known",
+    "not_a_cv": "Not a CV",
+    "unreadable": "Unreadable",
+    "failed": "Failed",
+}
+
 STATUS_STYLE = {
     "met": ("✓", "Met"),
     "partial": ("~", "Close"),
@@ -199,25 +215,44 @@ def tab_cvs(settings: Settings) -> None:
 
     if st.button(f"Read {pending} CV(s)", type="primary", disabled=pending == 0):
         bar = st.progress(0.0, text="Starting...")
-        log = st.empty()
-        seen: list[str] = []
+        table = st.empty()
+        rows: list[dict] = []
 
-        def on_progress(name: str, done: int, total: int) -> None:
-            seen.append(name)
+        def on_progress(event, done: int, total: int) -> None:
+            rows.append(
+                {
+                    "": STATUS_ICON.get(event.status, ""),
+                    "File": event.filename,
+                    "Status": STATUS_WORD.get(event.status, event.status),
+                    "Result": event.summary,
+                }
+            )
             bar.progress(done / total, text=f"{done} of {total}")
-            log.code("\n".join(seen[-8:]))
+            # Newest first, so the line that just finished is the one in view.
+            table.dataframe(
+                pd.DataFrame(rows[::-1]),
+                use_container_width=True,
+                hide_index=True,
+                height=320,
+            )
 
         report = screening.intake(paths, settings, on_progress=on_progress)
-        bar.progress(1.0, text="Done")
+        bar.progress(1.0, text=f"Done - {len(rows)} file(s)")
+        st.session_state["last_intake"] = rows
         st.success(
             f"Added {report.added}, already known {report.already_known}"
             + (f", not CVs {report.not_cvs}" if report.not_cvs else "")
             + (f", failed {report.failed} (run again to retry)" if report.failed else "")
         )
-        if report.errors:
-            with st.expander(f"{len(report.errors)} file(s) had problems"):
-                for name, why in report.errors:
-                    st.text(f"{name} - {why}")
+
+    # Survives the rerun that follows the run, so the per-file outcome is still
+    # on screen rather than replaced by a single summary line.
+    previous = st.session_state.get("last_intake")
+    if previous:
+        with st.expander(f"Last run - {len(previous)} file(s)", expanded=False):
+            st.dataframe(
+                pd.DataFrame(previous), use_container_width=True, hide_index=True
+            )
 
     with st.expander("Clear the staged files"):
         st.caption(
