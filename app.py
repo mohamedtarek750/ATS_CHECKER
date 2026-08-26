@@ -23,6 +23,53 @@ from ats.router import prepare_tree
 
 st.set_page_config(page_title="ACUD ATS Checker", layout="wide")
 
+
+def load_secrets() -> None:
+    """Streamlit Cloud has no .env - keys arrive through st.secrets.
+
+    Copy them into the environment so the provider layer finds them the same way
+    it does locally, without any cloud-specific code below this point.
+    """
+    for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "ATS_PROVIDER"):
+        if not os.getenv(name):
+            try:
+                value = st.secrets[name]
+            except Exception:  # no secrets file, or key absent
+                continue
+            if value:
+                os.environ[name] = str(value)
+
+
+def running_on_cloud() -> bool:
+    """Streamlit Cloud's filesystem is ephemeral and its URL is public."""
+    return bool(os.getenv("STREAMLIT_RUNTIME_ENV") or os.getenv("HOSTNAME", "").startswith("streamlit"))
+
+
+def check_password() -> bool:
+    """Gate the app when APP_PASSWORD is set. Without it a public URL is open."""
+    try:
+        expected = st.secrets["APP_PASSWORD"]
+    except Exception:
+        return True                      # no password configured
+    if not expected:
+        return True
+    if st.session_state.get("_authed"):
+        return True
+
+    st.title("ACUD ATS Checker")
+    entered = st.text_input("Password", type="password")
+    if entered:
+        if entered == expected:
+            st.session_state["_authed"] = True
+            st.rerun()
+        else:
+            st.error("Wrong password.")
+    st.stop()
+    return False
+
+
+load_secrets()
+
 REASON_LABELS = {
     "not_a_cv": "Not a CV",
     "ai_generated": "AI-generated",
@@ -326,12 +373,22 @@ def render_tree(settings: Settings) -> None:
 # Main
 # --------------------------------------------------------------------------
 def main() -> None:
+    check_password()
     st.title("ACUD ATS Checker")
     st.caption(
-        "Claude reads every CV, works out the role, flags AI-generated and "
+        "The model reads every CV, works out the role, flags AI-generated and "
         "off-standard documents, then files each one under accepted/ or "
         "rejected/ by role."
     )
+
+    if running_on_cloud():
+        st.warning(
+            "**Running on Streamlit Cloud.** The server's disk is wiped whenever the "
+            "app restarts or sleeps, so the `accepted/` and `rejected/` folders do "
+            "**not** survive - download the CSV report instead. Uploaded CVs are "
+            "stored on Streamlit's servers, so do not upload real applicants' CVs "
+            "here unless your organisation has approved that."
+        )
 
     settings = sidebar_settings()
     paths = collect_inputs(settings)

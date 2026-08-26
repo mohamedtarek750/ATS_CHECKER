@@ -115,6 +115,37 @@ layer is sent to Claude as a document so it can still be read.
 
 ---
 
+## Deploying to Streamlit Cloud
+
+`.env` is gitignored, so a deployed app has no key. Streamlit Cloud reads them from
+its own secrets store instead:
+
+**Manage app → Settings → Secrets**, then paste:
+
+```toml
+GEMINI_API_KEY = "AIza..."
+APP_PASSWORD = "pick-something-long"
+```
+
+Save, and the app restarts with the key available. `.streamlit/secrets.toml.example`
+has the full template.
+
+Three things to know before you put this on a public URL:
+
+- **The disk is wiped on every restart.** Streamlit Cloud gives each app ephemeral
+  storage, so `accepted/` and `rejected/` do not survive the app sleeping. The
+  folder-sorting output is effectively lost — use the **Download report (CSV)**
+  button, which is the durable output on a cloud deployment. If you need the folder
+  tree, run the CLI locally.
+- **A Streamlit Cloud URL is public by default.** Anyone with the link can upload
+  CVs and spend your API quota. Set `APP_PASSWORD` in secrets to gate it — the app
+  requires it when present, and skips the gate when absent.
+- **Uploaded CVs land on Streamlit's servers.** Combined with a free-tier LLM that
+  may train on submitted content, that is two third parties holding applicants'
+  personal data. For real intake, run it locally or get that cleared first.
+
+---
+
 ## Try it on the sample CVs
 
 13 fictional documents ship with the project — six genuine CVs across different roles,

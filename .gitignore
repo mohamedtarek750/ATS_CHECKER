@@ -9,3 +9,6 @@ data/output/*
 
 # Never commit real applicants CVs
 tests/fixtures/real_student_cv.pdf
+
+# Streamlit secrets are per-deployment, never committed
+.streamlit/secrets.toml
