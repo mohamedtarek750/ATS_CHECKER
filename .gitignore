@@ -16,7 +16,9 @@ data/jobs/
 data/output/candidates.db
 
 # web build output
-web/node_modules/
-web/.next/
-web/next-env.d.ts
 .vercel
+
+# Next.js app (now at the repo root)
+node_modules/
+.next/
+next-env.d.ts

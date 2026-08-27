@@ -4,10 +4,16 @@ The web app is a Next.js frontend plus one Python serverless function that reuse
 the existing `ats` package.
 
 ```
-web/            Next.js frontend (React, TypeScript, Tailwind)
-api/index.py    FastAPI serverless function
-vercel.json     build + routing
+app/  components/  lib/    Next.js frontend (React, TypeScript, Tailwind)
+package.json  next.config.mjs
+api/index.py            FastAPI serverless function
+vercel.json             function config + routing
 ```
+
+The Next app lives at the **repository root**, next to the Python package. That is
+Vercel's zero-config layout: it detects Next.js from the root `package.json` and
+serves `api/*.py` as Python functions alongside it, with no custom build command to
+get out of step with the project's settings.
 
 ## Deploy
 
@@ -16,9 +22,14 @@ npm i -g vercel
 vercel
 ```
 
-Vercel reads `vercel.json`, builds `web/`, and publishes `api/index.py` as a
-function on `/api/*`. Nothing else to configure — **the app works with no API key
-at all**, using the rules-based reader.
+Vercel detects Next.js at the root, builds it, and publishes `api/index.py` on
+`/api/*`. Nothing else to configure — **the app works with no API key at all**,
+using the rules-based reader.
+
+> **If you already created a project when the app lived in `web/`:** set
+> **Settings → Build and Deployment → Root Directory** back to empty (the
+> repository root) and redeploy. A root directory of `web` now points at a folder
+> that no longer exists, and the build fails before it starts.
 
 To enable the "paste a job description" step, add one environment variable in
 **Project → Settings → Environment Variables**:
@@ -39,10 +50,10 @@ Two processes: the API and the frontend.
 ATS_PROVIDER=offline python -m uvicorn api.index:app --port 8000
 ```
 ```bash
-npm --prefix web run dev
+npm run dev
 ```
 
-`web/next.config.mjs` proxies `/api/*` to `127.0.0.1:8000` in development only; in
+`next.config.mjs` proxies `/api/*` to `127.0.0.1:8000` in development only; in
 production Vercel routes it, so no proxy is involved.
 
 ---

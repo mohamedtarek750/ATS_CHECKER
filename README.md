@@ -20,7 +20,7 @@ thousands, and many vacancies, practical.
 
 ## Two front ends
 
-**The web app** (`web/` + `api/`) — a Next.js interface deployed on Vercel. Add CVs,
+**The web app** (`app/` + `api/`) — a Next.js interface deployed on Vercel. Add CVs,
 paste a job description *or* point at a reference CV, and get a ranked list with a
 match percentage and the reason behind every result. See `DEPLOY.md`.
 
