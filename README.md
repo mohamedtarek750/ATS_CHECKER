@@ -18,10 +18,27 @@ thousands, and many vacancies, practical.
 
 ---
 
+## Two front ends
+
+**The web app** (`web/` + `api/`) — a Next.js interface deployed on Vercel. Add CVs,
+paste a job description *or* point at a reference CV, and get a ranked list with a
+match percentage and the reason behind every result. See `DEPLOY.md`.
+
+```bash
+vercel
+```
+
+**The command line** (`hr_cli.py`) — for a large intake. Stores to SQLite, resumes
+after an interruption, and is not bounded by a serverless timeout.
+
+There is also `app_legacy.py`, the earlier Streamlit interface, kept working.
+
+---
+
 ## Quick start
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements-local.txt
 ```
 
 Get a free key at **aistudio.google.com/apikey**, copy `.env.example` to `.env`:
@@ -83,6 +100,22 @@ Shortlist  |  Omar H. Abdelrahman  |  7/7 must-haves
 
 A rejected candidate who asks why gets a real answer, and the employer can stand
 behind it.
+
+Each candidate also carries a **match percentage** — a plain weighted ratio of the
+requirements they meet, with must-haves carrying most of it and a near miss counting
+half. Every point is traceable to a named requirement, which is the only kind of
+percentage worth putting next to a person's name.
+
+### Filtering by a reference CV
+
+Instead of writing a checklist you can hand it one CV: *find me more like this*.
+The requirements are derived from what that CV **demonstrates** — skills, degree
+level, years — and never from its university, employer, or the language it was
+written in. Those track where someone came from rather than what they can do, and
+"find me people like this one" is exactly where that goes wrong.
+
+Only the top few skills become must-haves; the rest rank. A reference CV is an
+example, not a specification.
 
 ### The four outcomes
 

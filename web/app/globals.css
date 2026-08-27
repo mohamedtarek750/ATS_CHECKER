@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: light; }
+
+body {
+  @apply bg-white text-ink antialiased;
+  font-feature-settings: "cv11", "ss01";
+}
+
+.card { @apply rounded-lg border border-line bg-white; }
+.muted-card { @apply rounded-lg border border-line bg-wash; }
+.btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2
+         text-sm font-medium transition disabled:cursor-not-allowed
+         disabled:opacity-40;
+}
+.btn-primary { @apply btn bg-ink text-white hover:bg-ink/90; }
+.btn-ghost { @apply btn border border-line text-ink hover:bg-wash; }
+.field {
+  @apply w-full rounded-md border border-line px-3 py-2 text-sm
+         outline-none focus:border-ink/40;
+}

@@ -1,11 +1,13 @@
-# Core - always needed
+# Runtime for the Vercel Python function and the local CLIs.
 pypdf>=5
 python-docx>=1.1
-python-dotenv>=1
 pydantic>=2
-streamlit>=1.36
-pandas>=2
+fastapi>=0.110
+python-multipart>=0.0.9
 
-# Providers. Both are imported lazily, so you only need the one you use.
-google-genai>=1.0        # ATS_PROVIDER=gemini  (free tier)
-anthropic>=1,<2          # ATS_PROVIDER=claude  (paid)
+# Optional: only needed for the provider you actually use.
+google-genai>=1.0        # ATS_PROVIDER=gemini
+# anthropic>=1,<2        # ATS_PROVIDER=claude
+
+# Local tooling only - not needed on Vercel.
+python-dotenv>=1

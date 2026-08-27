@@ -43,6 +43,21 @@ class RankedCandidate:
     reason: str
 
     @property
+    def percent(self) -> int:
+        """How much of what the job asked for this candidate meets, 0-100.
+
+        A plain weighted ratio of requirements, not an opinion: must-haves carry
+        most of it, nice-to-haves the rest, and a partial or unclear result counts
+        half. Every point is traceable to a named requirement, which is the only
+        kind of percentage worth showing next to a person's name.
+        """
+        return int(round(self.score / (_MUST_WEIGHT + _NICE_WEIGHT) * 100))
+
+    @property
+    def percent_label(self) -> str:
+        return f"{self.percent}%"
+
+    @property
     def name(self) -> str:
         return self.match.candidate.full_name or self.match.source_name
 
@@ -56,14 +71,19 @@ class RankedCandidate:
 
 
 def _score(result: MatchResult) -> float:
-    """A number for ordering only. Never shown as a grade."""
+    """Weighted requirements met. Drives the ordering and the percentage."""
     must_total = result.must_total or 1
     credit = sum(
         1.0 if r.status == "met" else _PARTIAL_CREDIT if r.status in {"partial", "unclear"} else 0.0
         for r in result.must_results
     )
     must = (credit / must_total) * _MUST_WEIGHT
-    nice = (result.nice_met / result.nice_total * _NICE_WEIGHT) if result.nice_total else 0.0
+    # With no nice-to-haves listed, meeting every must-have is 100% - otherwise a
+    # candidate who met everything the advert asked for would be shown as 91%.
+    if result.nice_total:
+        nice = result.nice_met / result.nice_total * _NICE_WEIGHT
+    else:
+        nice = must / _MUST_WEIGHT * _NICE_WEIGHT
     return round(must + nice, 2)
 
 

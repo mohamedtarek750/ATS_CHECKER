@@ -14,3 +14,9 @@ tests/fixtures/real_student_cv.pdf
 .streamlit/secrets.toml
 data/jobs/
 data/output/candidates.db
+
+# web build output
+web/node_modules/
+web/.next/
+web/next-env.d.ts
+.vercel
