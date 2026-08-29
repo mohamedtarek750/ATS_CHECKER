@@ -30,7 +30,9 @@ from ats.job_profile import JobProfile  # noqa: E402
 from ats.models import CandidateProfile  # noqa: E402
 from ats.providers import ClassificationError  # noqa: E402
 from ats.skills import normalize_all  # noqa: E402
+from ats.blueprint import CVBlueprint, blueprint_for, render  # noqa: E402
 from ats.stages import from_cv, jobspec, offline, parse, rank  # noqa: E402
+from ats.stages import template_match as template  # noqa: E402
 from ats.stages import match as match_stage  # noqa: E402
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
@@ -168,6 +170,8 @@ class Candidate(BaseModel):
 class MatchRequest(BaseModel):
     job: JobProfile
     candidates: list[Candidate]
+    #: Also evaluate how well each CV is written for this job.
+    include_template: bool = True
 
 
 class RequirementOut(BaseModel):
@@ -195,6 +199,63 @@ class RankedOut(BaseModel):
     nice_total: int
     requirements: list[RequirementOut]
     possibly_ai: bool
+    #: Reported alongside the job match, never folded into it.
+    template: TemplateOut | None = None
+
+
+class SectionSpecOut(BaseModel):
+    key: str
+    label: str
+    weight: str
+    why: str
+    should_contain: list[str]
+
+
+class BlueprintOut(BaseModel):
+    """The ideal CV for a vacancy - a blueprint, never an invented candidate."""
+
+    job_title: str
+    seniority: str
+    sections: list[SectionSpecOut]
+    priority_skills: list[str]
+    summary_formula: str
+    summary_should_mention: list[str]
+    bullet_pattern: str
+    wants_metrics: bool
+    notes: list[str]
+    preview: str
+
+
+class SectionFindingOut(BaseModel):
+    key: str
+    label: str
+    weight: str
+    status: str
+    detail: str
+
+
+class RecommendationOut(BaseModel):
+    priority: str
+    text: str
+
+
+class TemplateOut(BaseModel):
+    """How well one CV is built for one job. Never merged with the job match."""
+
+    percent: int
+    band: str
+    sections: list[SectionFindingOut]
+    strengths: list[str]
+    improvements: list[str]
+    recommendations: list[RecommendationOut]
+    ideal_order: list[str]
+    candidate_order: list[str]
+    skill_placement: dict
+
+
+class TemplateRequest(BaseModel):
+    job: JobProfile
+    profile: CandidateProfile
 
 
 class MatchResponse(BaseModel):
@@ -265,6 +326,16 @@ def match(body: MatchRequest) -> MatchResponse:
     ]
     ranked = rank.rank(results)
 
+    # The template report is deterministic and cheap, so every candidate gets one
+    # in the same request rather than a second round trip per person.
+    blueprint = blueprint_for(body.job) if body.include_template else None
+    templates: dict[str, TemplateOut] = {}
+    if blueprint is not None:
+        for entry in ranked:
+            templates[entry.match.source_name] = _template_out(
+                template.evaluate(entry.match.candidate, blueprint, entry.match)
+            )
+
     return MatchResponse(
         job_title=body.job.title,
         must_total=len(body.job.must_haves),
@@ -297,7 +368,66 @@ def match(body: MatchRequest) -> MatchResponse:
                     for r in entry.match.results
                 ],
                 possibly_ai=entry.flagged_ai,
+                template=templates.get(entry.match.source_name),
             )
             for entry in ranked
         ],
     )
+
+
+def _blueprint_out(blueprint: CVBlueprint) -> BlueprintOut:
+    return BlueprintOut(
+        job_title=blueprint.job_title,
+        seniority=blueprint.seniority,
+        sections=[
+            SectionSpecOut(
+                key=s.key, label=s.label, weight=s.weight, why=s.why,
+                should_contain=s.should_contain,
+            )
+            for s in blueprint.sections
+        ],
+        priority_skills=blueprint.priority_skills,
+        summary_formula=blueprint.summary_formula,
+        summary_should_mention=blueprint.summary_should_mention,
+        bullet_pattern=blueprint.bullet_pattern,
+        wants_metrics=blueprint.wants_metrics,
+        notes=blueprint.notes,
+        preview=render(blueprint),
+    )
+
+
+def _template_out(report: template.TemplateReport) -> TemplateOut:
+    return TemplateOut(
+        percent=report.percent,
+        band=report.band,
+        sections=[
+            SectionFindingOut(
+                key=f.key, label=f.label, weight=f.weight,
+                status=f.status, detail=f.detail,
+            )
+            for f in report.sections
+        ],
+        strengths=report.strengths,
+        improvements=report.improvements,
+        recommendations=[
+            RecommendationOut(priority=r.priority, text=r.text)
+            for r in report.recommendations
+        ],
+        ideal_order=report.ideal_order,
+        candidate_order=report.candidate_order,
+        skill_placement=report.skill_placement,
+    )
+
+
+@app.post("/api/blueprint", response_model=BlueprintOut)
+def ideal_cv(job: JobProfile) -> BlueprintOut:
+    """The ideal CV for this vacancy. Derived in code - no model call, no wait."""
+    return _blueprint_out(blueprint_for(job))
+
+
+@app.post("/api/template", response_model=TemplateOut)
+def template_report(body: TemplateRequest) -> TemplateOut:
+    """How well one CV is built for one job, section by section."""
+    blueprint = blueprint_for(body.job)
+    match_result = match_stage.match(body.profile, body.job)
+    return _template_out(template.evaluate(body.profile, blueprint, match_result))

@@ -81,6 +81,22 @@ class CandidateProfile(BaseModel):
     projects: list[str] = Field(
         description="Project name plus the stack, one line each. Empty list if none."
     )
+    summary_text: str = Field(
+        default="",
+        description=(
+            "The professional summary or objective as written, or '' if the CV has "
+            "none. Kept verbatim: whether it positions the candidate for a role is "
+            "judged later, and cannot be judged from a paraphrase."
+        ),
+    )
+    sections_found: list[str] = Field(
+        default_factory=list,
+        description=(
+            "The sections the CV actually contains, in the order they appear - "
+            "e.g. ['summary', 'education', 'experience', 'skills']. A fact about "
+            "the document's layout, not a judgement about it."
+        ),
+    )
 
     # --- document-level facts, not judgements ---
     document_type: Literal[

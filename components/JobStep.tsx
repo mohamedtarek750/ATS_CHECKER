@@ -2,13 +2,16 @@
 
 import { useRef, useState } from "react";
 import {
+  fetchBlueprint,
   jobFromCV,
   parseCV,
   parseJob,
+  type Blueprint,
   type JobProfile,
   type Requirement,
 } from "@/lib/api";
 import { Note } from "./Shell";
+import { BlueprintCard } from "./TemplatePanel";
 
 type Mode = "text" | "cv";
 
@@ -29,6 +32,7 @@ export default function JobStep({
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [blueprint, setBlueprint] = useState<Blueprint | null>(null);
   const reference = useRef<HTMLInputElement>(null);
 
   async function fromText() {
@@ -58,8 +62,21 @@ export default function JobStep({
     setBusy(false);
   }
 
+  async function showBlueprint() {
+    if (!job) return;
+    setBusy(true);
+    try {
+      setBlueprint(await fetchBlueprint(job));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not build the template.");
+    }
+    setBusy(false);
+  }
+
   function toggle(index: number) {
     if (!job) return;
+    // Editing the requirements changes the ideal CV, so the old one is stale.
+    setBlueprint(null);
     const requirements: Requirement[] = job.requirements.map((r, i) =>
       i === index
         ? {
@@ -195,11 +212,22 @@ export default function JobStep({
             })}
           </ul>
 
-          <div className="px-5 py-3 text-sm text-muted">
-            {must} must-have · {job.requirements.length - must} nice-to-have
+          <div className="flex flex-wrap items-center gap-3 px-5 py-3 text-sm text-muted">
+            <span>
+              {must} must-have · {job.requirements.length - must} nice-to-have
+            </span>
+            <button
+              className="btn-ghost ml-auto"
+              onClick={blueprint ? () => setBlueprint(null) : showBlueprint}
+              disabled={busy}
+            >
+              {blueprint ? "Hide ideal CV" : "Generate ideal CV template"}
+            </button>
           </div>
         </div>
       )}
+
+      {blueprint && <BlueprintCard blueprint={blueprint} />}
     </div>
   );
 }

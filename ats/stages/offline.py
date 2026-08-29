@@ -117,6 +117,31 @@ def _sections(text: str) -> dict[str, str]:
     return out
 
 
+def section_order(text: str) -> list[str]:
+    """The sections a CV contains, in the order they appear.
+
+    Order is a fact worth recording on its own. A senior CV that opens with
+    education is presenting the same qualifications less effectively than one that
+    opens with the work - and unlike a missing skill, that is fixable by the
+    candidate in ten minutes, which makes it worth telling them about.
+    """
+    order: list[str] = []
+    for line in text.split("\n"):
+        stripped = line.strip().strip(":").strip()
+        if not stripped or len(stripped) > 45:
+            continue
+        lowered = stripped.lower()
+        for name, headings in SECTION_HEADINGS.items():
+            if any(
+                lowered == h or lowered.startswith(h + " ") or lowered == h + ":"
+                for h in headings
+            ):
+                if name not in order:
+                    order.append(name)
+                break
+    return order
+
+
 def _guess_name(text: str, email: str) -> str:
     """The name is almost always the first substantial line of a CV."""
     for line in text.split("\n")[:8]:
@@ -146,48 +171,65 @@ def _guess_name(text: str, email: str) -> str:
     return ""
 
 
-#: Degree words, so "BSc Computer Science, Cairo University" can be split into
-#: its parts without the field swallowing the university name.
+#: Degree words, longest first and word-bounded on both sides.
+#: Ordering matters: regex alternation is left-to-right, so a short "b.a"
+#: placed before "bachelor" matches the "Ba" inside it and leaves
+#: "chelor of Statistics" as the field of study. Both patterns are built from
+#: this one ordered list so they cannot drift apart again.
+_DEGREE_WORDS_ORDERED = (
+    r"bachelor's", r"bachelors", r"bachelor",
+    r"master's", r"masters", r"master",
+    r"doctorate", r"doctoral",
+    r"b\.?sc", r"bsc", r"b\.?eng", r"beng", r"b\.?tech", r"btech",
+    r"m\.?sc", r"msc", r"m\.?eng", r"meng", r"mba",
+    r"ph\.?d", r"phd",
+    r"b\.?a", r"m\.?a",
+    r"diploma", r"licence", r"license",
+)
+_DEGREE_ALT = "|".join(_DEGREE_WORDS_ORDERED)
+
+#: "BSc Computer Science" - the subject follows the degree word.
 _DEGREE_LEAD = re.compile(
-    r"\b(?:b\.?sc|bsc|b\.?a|ba|b\.?eng|beng|b\.?tech|m\.?sc|msc|m\.?a|mba|"
-    r"m\.?eng|meng|ph\.?d|phd|bachelor(?:'s)?|master(?:'s)?|diploma|doctorate)"
-    r"\s*(?:degree)?\s*(?:in|of)?\s*",
+    rf"\b(?:{_DEGREE_ALT})\b\.?\s*(?:degree)?\s*(?:in|of)?\s*",
     re.IGNORECASE,
 )
 
-
-#: The same degree words, for CVs that put them after the subject.
+#: "Computer Engineering BSc" - the degree word trails the subject instead.
 _DEGREE_TRAIL = re.compile(
-    r"\s*\b(?:b\.?sc|bsc|b\.?a|b\.?eng|beng|b\.?tech|m\.?sc|msc|mba|m\.?eng|"
-    r"meng|ph\.?d|phd|bachelor(?:'s)?|master(?:'s)?|degree|diploma)\b.*",
+    rf"\s*\b(?:{_DEGREE_ALT}|degree)\b.*",
     re.IGNORECASE,
 )
 
 
 def _field_of_study(line: str, institution: str) -> str:
-    """The subject, not the university.
+    """The subject, not the university and not the degree word.
 
-    "BSc Computer and Systems Engineering, Ain Shams University, 2017" has no
-    "in" or "of" to key off, and the old pattern returned the university. A field
-    read as an institution makes an education requirement unmatchable.
+    Both orderings are common - "BSc Computer Science" and "Computer Engineering
+    BSc" - and which pattern applies depends on where the degree word sits. Using
+    the leading pattern on a trailing CV takes everything *after* the degree word,
+    which is the institution and the year, and returns nothing usable.
     """
     text = line
     if institution:
         text = text.replace(institution, " ")
-    match = _DEGREE_LEAD.search(text)
-    if match:
-        # "BSc Computer Science" - the subject follows the degree word.
-        text = text[match.end():]
-    else:
-        # "Computer Engineering BSc" - the degree word trails it instead. Both
-        # orderings are common and dropping one loses the subject entirely.
-        trailing = _DEGREE_TRAIL.search(text)
-        if trailing:
-            text = text[: trailing.start()]
-    # The subject runs up to the first comma, dash or year.
+
+    lead = _DEGREE_LEAD.search(text)
+    trail = _DEGREE_TRAIL.search(text)
+
+    # Near the start: the subject follows it. Later: the subject precedes it.
+    if lead and lead.start() <= 3:
+        text = text[lead.end():]
+    elif trail:
+        text = text[: trail.start()]
+    elif lead:
+        text = text[lead.end():]
+
+    # The subject runs to the first comma, dash or year.
     field = re.split(r"[,;|]|\s[-\u2013\u2014]\s|\b(?:19|20)\d{2}\b", text)[0]
-    field = re.sub(r"\b(?:university|college|institute|academy|school)\b.*", "",
-                   field, flags=re.IGNORECASE)
+    field = re.sub(
+        r"\b(?:university|college|institute|academy|school|uni)\b.*", "", field,
+        flags=re.IGNORECASE,
+    )
     field = field.strip(" ,.-\t")
     return field[:60] if 2 < len(field) < 70 else ""
 
@@ -208,8 +250,16 @@ def _education(text: str, sections: dict[str, str]) -> list[Education]:
         years = [int(y) for y in YEAR.findall(line)]
         institution = ""
         for marker in ("university", "college", "institute", "academy", "school"):
-            match = re.search(rf"([A-Z][\w.'\-]*(?:\s+[\w.'\-]+){{0,4}}\s*{marker})",
-                              line, re.IGNORECASE)
+            # At most two words before the marker. Allowing four let "BSc Computer
+            # Science - Cairo University" match from "Computer", so removing the
+            # institution removed the subject with it.
+            match = re.search(
+                # No bare dash in the words before the marker: on
+                # "BSc Computer Science - Cairo University" it let the match start
+                # at "Science", so removing the institution took the subject too.
+                rf"([A-Z][\w.']*(?:\s+[\w.']+){{0,2}}\s*{marker})",
+                line, re.IGNORECASE,
+            )
             if match:
                 institution = match.group(1).strip()
                 break
@@ -439,7 +489,15 @@ def extract_profile(doc: ParsedDoc) -> CandidateProfile:
         if 8 < len(line.strip()) < 160
     ][:12]
 
+    summary_text = " ".join(
+        line.strip()
+        for line in sections.get("summary", "").split(chr(10))
+        if line.strip()
+    )[:600]
+
     return CandidateProfile(
+        summary_text=summary_text,
+        sections_found=section_order(text),
         full_name=_guess_name(text, email),
         email=email,
         phone=phones[0] if phones else "",

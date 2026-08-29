@@ -72,6 +72,53 @@ export interface Ranked {
   nice_total: number;
   requirements: RequirementResult[];
   possibly_ai: boolean;
+  /** Reported beside the job match, never folded into it: they answer different
+   *  questions and adding them would hide which one a candidate failed. */
+  template: TemplateReport | null;
+}
+
+export interface SectionSpec {
+  key: string;
+  label: string;
+  weight: "required" | "recommended" | "optional" | "low_value";
+  why: string;
+  should_contain: string[];
+}
+
+export interface Blueprint {
+  job_title: string;
+  seniority: string;
+  sections: SectionSpec[];
+  priority_skills: string[];
+  summary_formula: string;
+  summary_should_mention: string[];
+  bullet_pattern: string;
+  wants_metrics: boolean;
+  notes: string[];
+  preview: string;
+}
+
+export type SectionStatus =
+  | "excellent" | "good" | "partial" | "weak" | "missing" | "not_relevant";
+
+export interface SectionFinding {
+  key: string;
+  label: string;
+  weight: string;
+  status: SectionStatus;
+  detail: string;
+}
+
+export interface TemplateReport {
+  percent: number;
+  band: string;
+  sections: SectionFinding[];
+  strengths: string[];
+  improvements: string[];
+  recommendations: { priority: "high" | "medium" | "low"; text: string }[];
+  ideal_order: string[];
+  candidate_order: string[];
+  skill_placement: Record<string, string>;
 }
 
 export interface MatchResponse {
@@ -156,6 +203,40 @@ export async function matchAll(
     })
   );
 }
+
+export async function fetchBlueprint(job: JobProfile): Promise<Blueprint> {
+  return unwrap<Blueprint>(
+    await fetch("/api/blueprint", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(job),
+    })
+  );
+}
+
+export const SECTION_TONE: Record<SectionStatus, string> = {
+  excellent: "bg-good-wash text-good",
+  good: "bg-good-wash text-good",
+  partial: "bg-warn-wash text-warn",
+  weak: "bg-warn-wash text-warn",
+  missing: "bg-bad-wash text-bad",
+  not_relevant: "raised text-muted",
+};
+
+export const SECTION_WORD: Record<SectionStatus, string> = {
+  excellent: "Excellent",
+  good: "Good",
+  partial: "Partial",
+  weak: "Weak",
+  missing: "Missing",
+  not_relevant: "Not relevant",
+};
+
+export const PRIORITY_TONE: Record<string, string> = {
+  high: "bg-bad-wash text-bad",
+  medium: "bg-warn-wash text-warn",
+  low: "raised text-muted",
+};
 
 export const STATUS_MARK: Record<Status, string> = {
   met: "✓",

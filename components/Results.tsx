@@ -8,6 +8,7 @@ import {
   type Ranked,
 } from "@/lib/api";
 import { Note, Score, Stat } from "./Shell";
+import { TemplateBlock } from "./TemplatePanel";
 
 const TIER_CHIP: Record<string, string> = {
   shortlist: "bg-good-wash text-good",
@@ -43,6 +44,15 @@ function Row({ entry }: { entry: Ranked }) {
             title="Reads as possibly AI-written. Flagged for a human to look at, never a rejection."
           >
             AI?
+          </span>
+        )}
+
+        {entry.template && (
+          <span
+            className="hidden shrink-0 text-right text-xs text-muted sm:block"
+            title="How well this CV is written for this job - a separate question from whether the candidate is qualified"
+          >
+            CV {entry.template.percent}%
           </span>
         )}
 
@@ -96,6 +106,8 @@ function Row({ entry }: { entry: Ranked }) {
               </li>
             ))}
           </ul>
+
+          {entry.template && <TemplateBlock report={entry.template} />}
 
           {(entry.email || entry.phone) && (
             <p className="mt-3 border-t pt-3 text-xs text-muted">
