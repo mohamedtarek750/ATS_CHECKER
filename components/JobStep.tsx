@@ -8,6 +8,7 @@ import {
   type JobProfile,
   type Requirement,
 } from "@/lib/api";
+import { Note } from "./Shell";
 
 type Mode = "text" | "cv";
 
@@ -15,26 +16,26 @@ export default function JobStep({
   job,
   setJob,
   provider,
-  canUseModel,
-  disabled,
+  canReadJobs,
+  jobModel,
 }: {
   job: JobProfile | null;
   setJob: (job: JobProfile | null) => void;
   provider: string;
-  canUseModel: boolean;
-  disabled: boolean;
+  canReadJobs: boolean;
+  jobModel: string | null;
 }) {
   const [mode, setMode] = useState<Mode>("text");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const referenceInput = useRef<HTMLInputElement>(null);
+  const reference = useRef<HTMLInputElement>(null);
 
   async function fromText() {
     setBusy(true);
     setError("");
     try {
-      setJob(await parseJob(text, provider));
+      setJob(await parseJob(text));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not read that.");
     }
@@ -70,70 +71,75 @@ export default function JobStep({
     setJob({ ...job, requirements });
   }
 
-  const mustCount = job?.requirements.filter((r) => r.importance === "must_have").length ?? 0;
+  const must = job?.requirements.filter((r) => r.importance === "must_have").length ?? 0;
 
   return (
-    <section className={`space-y-4 ${disabled ? "pointer-events-none opacity-40" : ""}`}>
-      <div>
-        <h2 className="text-lg font-semibold">2. What are you hiring for?</h2>
-        <p className="text-sm text-muted">
-          Paste the advert, or point at one CV and find people like them.
-        </p>
-      </div>
-
-      <div className="flex gap-2">
-        <button
-          className={mode === "text" ? "btn-primary" : "btn-ghost"}
-          onClick={() => setMode("text")}
-        >
-          Paste a job description
-        </button>
-        <button
-          className={mode === "cv" ? "btn-primary" : "btn-ghost"}
-          onClick={() => setMode("cv")}
-        >
-          Use a reference CV
-        </button>
+    <div className="space-y-4">
+      <div className="inline-flex rounded-lg border p-1">
+        {(
+          [
+            ["text", "Paste a job description"],
+            ["cv", "Use a reference CV"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            onClick={() => setMode(value)}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+              mode === value ? "bg-accent text-accent-ink" : "text-muted hover:text-ink"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {mode === "text" ? (
         <div className="space-y-3">
           <textarea
-            className="field h-56 resize-y font-[inherit]"
-            placeholder="Paste the whole advert — requirements are read out of it."
+            className="field h-56 resize-y leading-relaxed"
+            placeholder="Paste the whole advert. The requirements are read out of it and split into must-have and nice-to-have."
             value={text}
             onChange={(e) => setText(e.target.value)}
           />
-          {!canUseModel && (
-            <p className="text-sm text-warn">
-              Reading an advert needs a model. Set <code>GEMINI_API_KEY</code> on the
-              deployment, or use a reference CV instead — that works with no key.
-            </p>
+          {!canReadJobs && (
+            <Note tone="warn">
+              Reading an advert needs a model — turning prose into must-have and
+              nice-to-have is the one judgement rules cannot make. Add{" "}
+              <code className="rounded bg-warn/10 px-1">GEMINI_API_KEY</code> to the
+              deployment, or use a reference CV, which needs no key.
+            </Note>
           )}
-          <button
-            className="btn-primary"
-            onClick={fromText}
-            disabled={busy || !text.trim() || !canUseModel}
-          >
-            {busy ? "Reading…" : "Read the requirements"}
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              className="btn-primary"
+              onClick={fromText}
+              disabled={busy || !text.trim() || !canReadJobs}
+            >
+              {busy ? "Reading the advert…" : "Read the requirements"}
+            </button>
+            {canReadJobs && jobModel && (
+              <span className="text-xs text-muted">using {jobModel}</span>
+            )}
+          </div>
         </div>
       ) : (
         <div className="space-y-3">
-          <div className="muted-card p-4 text-sm text-muted">
-            Upload one CV that looks like what you want. The requirements are taken
-            from what that CV <em>demonstrates</em> — skills, degree level, years.
-            Never its university, employer, or the language it was written in.
-          </div>
+          <Note>
+            Upload one CV that looks like what you want. The requirements come from
+            what that CV <em>demonstrates</em> — skills, degree level, years — and
+            never from its university, employer, or the language it was written in.
+            Those track where someone came from rather than what they can do.
+          </Note>
           <button
             className="btn-ghost"
-            onClick={() => referenceInput.current?.click()}
+            onClick={() => reference.current?.click()}
             disabled={busy}
           >
             {busy ? "Reading…" : "Choose the reference CV"}
           </button>
           <input
-            ref={referenceInput}
+            ref={reference}
             type="file"
             accept=".pdf,.docx,.txt,.md,.rtf"
             className="hidden"
@@ -146,49 +152,54 @@ export default function JobStep({
         </div>
       )}
 
-      {error && <p className="text-sm text-bad">{error}</p>}
+      {error && <Note tone="bad">{error}</Note>}
 
       {job && (
-        <div className="card space-y-3 p-5">
-          <div>
+        <div className="card animate-rise overflow-hidden">
+          <div className="border-b px-5 py-4">
             <h3 className="font-semibold">{job.title}</h3>
-            <p className="text-sm text-muted">{job.summary}</p>
+            <p className="mt-0.5 text-sm text-muted">{job.summary}</p>
           </div>
 
-          <div className="rounded-md border border-warn/30 bg-warn/5 p-3 text-sm text-warn">
+          <div className="border-b bg-warn-wash px-5 py-3 text-sm text-warn">
             <strong>Check the must-haves before you match.</strong> Each one removes
             every applicant who lacks it, and nobody reviews who was removed. Click a
-            requirement to move it between must-have and nice-to-have.
+            row to move it between must-have and nice-to-have.
           </div>
 
-          <ul className="divide-y divide-line">
-            {job.requirements.map((requirement, index) => (
-              <li key={`${requirement.text}-${index}`}>
-                <button
-                  className="flex w-full items-center gap-3 py-2 text-left text-sm hover:bg-wash"
-                  onClick={() => toggle(index)}
-                >
-                  <span
-                    className={`w-24 shrink-0 rounded px-2 py-0.5 text-center text-xs ${
-                      requirement.importance === "must_have"
-                        ? "bg-ink text-white"
-                        : "border border-line text-muted"
-                    }`}
+          <ul className="divide-y">
+            {job.requirements.map((requirement, index) => {
+              const isMust = requirement.importance === "must_have";
+              return (
+                <li key={`${requirement.text}-${index}`}>
+                  <button
+                    onClick={() => toggle(index)}
+                    className="flex w-full items-center gap-3 px-5 py-2.5 text-left text-sm transition hover:bg-raised"
                   >
-                    {requirement.importance === "must_have" ? "Must have" : "Nice to have"}
-                  </span>
-                  <span className="flex-1">{requirement.text}</span>
-                  <span className="text-xs text-muted">{requirement.kind}</span>
-                </button>
-              </li>
-            ))}
+                    <span
+                      className={`chip w-24 shrink-0 justify-center border ${
+                        isMust
+                          ? "border-transparent bg-accent text-accent-ink"
+                          : "border-line text-muted"
+                      }`}
+                    >
+                      {isMust ? "Must have" : "Nice to have"}
+                    </span>
+                    <span className={`flex-1 ${isMust ? "" : "text-muted"}`}>
+                      {requirement.text}
+                    </span>
+                    <span className="shrink-0 text-xs text-muted">{requirement.kind}</span>
+                  </button>
+                </li>
+              );
+            })}
           </ul>
 
-          <p className="text-sm text-muted">
-            {mustCount} must-have · {job.requirements.length - mustCount} nice-to-have
-          </p>
+          <div className="px-5 py-3 text-sm text-muted">
+            {must} must-have · {job.requirements.length - must} nice-to-have
+          </div>
         </div>
       )}
-    </section>
+    </div>
   );
 }

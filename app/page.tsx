@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import JobStep from "@/components/JobStep";
 import Results from "@/components/Results";
+import { Note, Step } from "@/components/Shell";
 import Uploads, { type UploadRow } from "@/components/Uploads";
 import {
   health,
@@ -24,12 +25,11 @@ export default function Page() {
     health().then(setServer).catch(() => setServer(null));
   }, []);
 
+  // A changed job means any previous ranking is stale.
+  useEffect(() => setResults(null), [job]);
+
   const ready = rows.filter((r) => r.status === "done" && r.parsed);
   const provider = server?.provider ?? "offline";
-  const canUseModel = provider !== "offline";
-
-  // A new job means the previous ranking is stale.
-  useEffect(() => setResults(null), [job]);
 
   async function run() {
     if (!job) return;
@@ -52,58 +52,96 @@ export default function Page() {
   }
 
   return (
-    <main className="mx-auto max-w-4xl px-6 py-10">
-      <header className="mb-10">
-        <h1 className="text-2xl font-semibold tracking-tight">ACUD ATS</h1>
-        <p className="mt-1 text-sm text-muted">
-          Add the CVs, say what you are hiring for, and see how far each candidate
-          meets it — with the reason for every result.
-        </p>
-        {server && (
-          <p className="mt-2 text-xs text-muted">
-            Reading CVs with <strong>{server.provider}</strong>
-            {server.provider === "offline"
-              ? " — rules only, no key needed, nothing sent to a model."
-              : ` (${server.model})`}
-          </p>
-        )}
+    <div className="min-h-dvh">
+      <header className="sticky top-0 z-10 border-b bg-bg/85 backdrop-blur">
+        <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-6 py-3.5">
+          <div className="min-w-0">
+            <h1 className="truncate text-[15px] font-semibold tracking-tight">
+              ACUD ATS
+            </h1>
+            <p className="truncate text-xs text-muted">
+              Read each CV once, match it against any vacancy, see every reason
+            </p>
+          </div>
+          {server && (
+            <div className="hidden shrink-0 text-right text-xs text-muted sm:block">
+              <div>
+                CVs: <strong className="text-ink">{server.provider}</strong>
+                {server.provider === "offline" && " (no key needed)"}
+              </div>
+              <div>
+                Adverts:{" "}
+                <strong className="text-ink">
+                  {server.can_read_jobs ? server.job_model : "unavailable"}
+                </strong>
+              </div>
+            </div>
+          )}
+        </div>
       </header>
 
-      <div className="space-y-12">
-        <Uploads rows={rows} setRows={setRows} provider={provider} />
+      <main className="mx-auto max-w-4xl space-y-12 px-6 py-10">
+        <Step
+          index={1}
+          title="Add the CVs"
+          hint="Read once, here in your browser session. Nothing is stored on the server."
+          done={ready.length > 0}
+          active={ready.length === 0}
+        >
+          <Uploads rows={rows} setRows={setRows} provider={provider} />
+        </Step>
 
         {ready.length > 0 && (
-          <JobStep
-            job={job}
-            setJob={setJob}
-            provider={provider}
-            canUseModel={canUseModel}
-            disabled={false}
-          />
+          <Step
+            index={2}
+            title="What are you hiring for?"
+            hint="Paste the advert, or point at one CV and find people like them."
+            done={!!job}
+            active={!job}
+          >
+            <JobStep
+              job={job}
+              setJob={setJob}
+              provider={provider}
+              canReadJobs={server?.can_read_jobs ?? false}
+              jobModel={server?.job_model ?? null}
+            />
+          </Step>
         )}
 
         {job && ready.length > 0 && (
-          <section className="space-y-3">
-            <button className="btn-primary" onClick={run} disabled={busy}>
-              {busy
-                ? "Matching…"
-                : `Match ${ready.length} candidate${ready.length === 1 ? "" : "s"}`}
-            </button>
-            <p className="text-xs text-muted">
-              Matching is pure computation — no model call, so it is instant however
-              many CVs you added.
-            </p>
-            {error && <p className="text-sm text-bad">{error}</p>}
-          </section>
+          <Step
+            index={3}
+            title="The shortlist"
+            hint="How far each candidate meets what the advert actually asked for."
+            active={!results}
+            done={!!results}
+          >
+            <div className="space-y-4">
+              {!results && (
+                <div className="space-y-2">
+                  <button className="btn-primary" onClick={run} disabled={busy}>
+                    {busy
+                      ? "Matching…"
+                      : `Match ${ready.length} candidate${ready.length === 1 ? "" : "s"}`}
+                  </button>
+                  <p className="text-xs text-muted">
+                    Matching is pure computation — no model call, so it is instant
+                    however many CVs you added.
+                  </p>
+                </div>
+              )}
+              {error && <Note tone="bad">{error}</Note>}
+              {results && <Results data={results} />}
+            </div>
+          </Step>
         )}
+      </main>
 
-        {results && <Results data={results} />}
-      </div>
-
-      <footer className="mt-16 border-t border-line pt-6 text-xs text-muted">
+      <footer className="mx-auto max-w-4xl border-t px-6 py-6 text-xs text-muted">
         CVs are read one at a time and the results stay in this browser session.
         Nothing is written to a server.
       </footer>
-    </main>
+    </div>
   );
 }

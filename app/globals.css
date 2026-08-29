@@ -2,23 +2,113 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: light; }
+/* One palette, defined light-first, with the dark values swapping only the
+   tokens. Every colour used anywhere resolves through these, so nothing can be
+   readable in one theme and invisible in the other. */
+:root {
+  --bg: 255 255 255;
+  --surface: 255 255 255;
+  --raised: 248 250 252;
+  --ink: 15 23 32;
+  --muted: 91 107 122;
+  --line: 226 232 240;
+  --accent: 17 24 39;
+  --accent-ink: 255 255 255;
+  --good: 12 122 77;
+  --good-wash: 236 253 245;
+  --warn: 146 101 0;
+  --warn-wash: 255 251 235;
+  --bad: 154 43 43;
+  --bad-wash: 254 242 242;
+  --ring: 15 23 32;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: 11 15 20;
+    --surface: 17 23 30;
+    --raised: 22 29 38;
+    --ink: 232 238 245;
+    --muted: 141 157 173;
+    --line: 38 48 60;
+    --accent: 232 238 245;
+    --accent-ink: 11 15 20;
+    --good: 74 209 149;
+    --good-wash: 12 40 31;
+    --warn: 235 179 62;
+    --warn-wash: 46 35 10;
+    --bad: 248 129 129;
+    --bad-wash: 51 22 22;
+    --ring: 141 157 173;
+  }
+}
+
+* {
+  border-color: rgb(var(--line));
+}
 
 body {
-  @apply bg-white text-ink antialiased;
-  font-feature-settings: "cv11", "ss01";
+  background: rgb(var(--bg));
+  color: rgb(var(--ink));
+  -webkit-font-smoothing: antialiased;
 }
 
-.card { @apply rounded-lg border border-line bg-white; }
-.muted-card { @apply rounded-lg border border-line bg-wash; }
-.btn {
-  @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2
-         text-sm font-medium transition disabled:cursor-not-allowed
-         disabled:opacity-40;
+@layer components {
+  .card {
+    @apply rounded-xl border shadow-[0_1px_2px_rgba(0,0,0,0.04)];
+    background: rgb(var(--surface));
+  }
+  .raised {
+    background: rgb(var(--raised));
+  }
+
+  .btn {
+    @apply inline-flex select-none items-center justify-center gap-2 rounded-lg
+           px-4 py-2 text-sm font-medium transition
+           focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2
+           disabled:cursor-not-allowed disabled:opacity-40;
+    outline-color: rgb(var(--ring));
+  }
+  .btn-primary {
+    @apply btn;
+    background: rgb(var(--accent));
+    color: rgb(var(--accent-ink));
+  }
+  .btn-primary:hover:not(:disabled) {
+    opacity: 0.88;
+  }
+  .btn-ghost {
+    @apply btn border;
+    background: rgb(var(--surface));
+    color: rgb(var(--ink));
+  }
+  .btn-ghost:hover:not(:disabled) {
+    background: rgb(var(--raised));
+  }
+
+  .field {
+    @apply w-full rounded-lg border px-3 py-2 text-sm transition
+           focus:outline focus:outline-2 focus:outline-offset-0;
+    background: rgb(var(--surface));
+    color: rgb(var(--ink));
+    outline-color: rgb(var(--ring) / 0.35);
+  }
+
+  .chip {
+    @apply inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium;
+  }
+
+  /* The step rail down the left of each section. */
+  .step-num {
+    @apply flex h-7 w-7 shrink-0 items-center justify-center rounded-full
+           text-xs font-semibold;
+  }
 }
-.btn-primary { @apply btn bg-ink text-white hover:bg-ink/90; }
-.btn-ghost { @apply btn border border-line text-ink hover:bg-wash; }
-.field {
-  @apply w-full rounded-md border border-line px-3 py-2 text-sm
-         outline-none focus:border-ink/40;
+
+/* Long lists of candidates and files scroll a lot; keep the bar unobtrusive. */
+.scroll-thin::-webkit-scrollbar { width: 10px; height: 10px; }
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: rgb(var(--line));
+  border-radius: 9999px;
+  border: 3px solid rgb(var(--surface));
 }

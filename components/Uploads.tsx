@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { parseCV, type ParsedCV } from "@/lib/api";
+import { Note } from "./Shell";
 
 export interface UploadRow {
   file: File;
@@ -12,20 +13,20 @@ export interface UploadRow {
 
 const LABEL: Record<UploadRow["status"], string> = {
   waiting: "Waiting",
-  reading: "Reading…",
+  reading: "Reading",
   done: "Read",
-  skipped: "Already added",
+  skipped: "Duplicate",
   not_cv: "Not a CV",
   failed: "Failed",
 };
 
-const TONE: Record<UploadRow["status"], string> = {
-  waiting: "text-muted",
-  reading: "text-ink",
-  done: "text-good",
-  skipped: "text-muted",
-  not_cv: "text-warn",
-  failed: "text-bad",
+const CHIP: Record<UploadRow["status"], string> = {
+  waiting: "text-muted raised",
+  reading: "text-ink raised",
+  done: "text-good bg-good-wash",
+  skipped: "text-muted raised",
+  not_cv: "text-warn bg-warn-wash",
+  failed: "text-bad bg-bad-wash",
 };
 
 export default function Uploads({
@@ -38,21 +39,21 @@ export default function Uploads({
   provider: string;
 }) {
   const [busy, setBusy] = useState(false);
+  const [over, setOver] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const input = useRef<HTMLInputElement>(null);
 
   function add(files: FileList | null) {
     if (!files) return;
-    const existing = new Set(rows.map((r) => `${r.file.name}|${r.file.size}`));
+    const seen = new Set(rows.map((r) => `${r.file.name}|${r.file.size}`));
     const fresh = Array.from(files)
-      .filter((f) => !existing.has(`${f.name}|${f.size}`))
+      .filter((f) => !seen.has(`${f.name}|${f.size}`))
       .map((file) => ({ file, status: "waiting" as const }));
-    setRows([...rows, ...fresh]);
+    if (fresh.length) setRows([...rows, ...fresh]);
   }
 
-  // One CV per request. A single call for a hundred would exceed the function
-  // timeout, and this way each row updates as it lands rather than the whole
-  // batch appearing at the end.
+  // One CV per request: a single call for a hundred would exceed the function
+  // timeout, and this way each row resolves as it lands.
   async function readAll() {
     const pending = rows
       .map((row, index) => ({ row, index }))
@@ -62,22 +63,24 @@ export default function Uploads({
     setBusy(true);
     setProgress({ done: 0, total: pending.length });
     const next = [...rows];
-    const seenKeys = new Set(
-      rows.filter((r) => r.parsed).map((r) => r.parsed!.key)
-    );
+    const keys = new Set(rows.filter((r) => r.parsed).map((r) => r.parsed!.key));
 
     for (let i = 0; i < pending.length; i++) {
       const { row, index } = pending[i];
-      next[index] = { ...next[index], status: "reading" };
+      next[index] = { ...next[index], status: "reading", detail: undefined };
       setRows([...next]);
 
       try {
         const parsed = await parseCV(row.file, provider);
-        if (seenKeys.has(parsed.key)) {
-          // Same content under a different name - the same person twice.
-          next[index] = { ...next[index], status: "skipped", parsed };
+        if (keys.has(parsed.key)) {
+          next[index] = {
+            ...next[index],
+            parsed,
+            status: "skipped",
+            detail: "same content as another file",
+          };
         } else {
-          seenKeys.add(parsed.key);
+          keys.add(parsed.key);
           next[index] = {
             ...next[index],
             parsed,
@@ -85,7 +88,7 @@ export default function Uploads({
             detail: parsed.profile.is_cv
               ? [parsed.profile.full_name, parsed.profile.headline]
                   .filter(Boolean)
-                  .join(" — ")
+                  .join(" · ")
               : parsed.profile.document_type.replace(/_/g, " "),
           };
         }
@@ -106,26 +109,26 @@ export default function Uploads({
     (r) => r.status === "waiting" || r.status === "failed"
   ).length;
   const ready = rows.filter((r) => r.status === "done").length;
+  const failed = rows.filter((r) => r.status === "failed").length;
 
   return (
-    <section className="space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold">1. Add the CVs</h2>
-        <p className="text-sm text-muted">
-          Each CV is read once, here in your browser session. Nothing is stored on
-          the server.
-        </p>
-      </div>
-
+    <div className="space-y-4">
       <div
-        className="card flex flex-col items-center gap-3 border-dashed p-8 text-center"
-        onDragOver={(e) => e.preventDefault()}
+        className={`card flex flex-col items-center gap-3 border-2 border-dashed p-10 text-center transition ${
+          over ? "border-accent/40 raised" : ""
+        }`}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setOver(true);
+        }}
+        onDragLeave={() => setOver(false)}
         onDrop={(e) => {
           e.preventDefault();
+          setOver(false);
           add(e.dataTransfer.files);
         }}
       >
-        <p className="text-sm text-muted">Drop CVs here, or</p>
+        <p className="text-sm text-muted">Drop CVs here</p>
         <button className="btn-ghost" onClick={() => input.current?.click()}>
           Choose files
         </button>
@@ -140,40 +143,32 @@ export default function Uploads({
             e.target.value = "";
           }}
         />
-        <p className="text-xs text-muted">PDF, DOCX, TXT, MD, RTF — up to 8 MB each</p>
+        <p className="text-xs text-muted">PDF, DOCX, TXT, MD, RTF · up to 8 MB each</p>
       </div>
 
       {rows.length > 0 && (
         <>
           <div className="flex flex-wrap items-center gap-3">
-            <button
-              className="btn-primary"
-              onClick={readAll}
-              disabled={busy || waiting === 0}
-            >
+            <button className="btn-primary" onClick={readAll} disabled={busy || !waiting}>
               {busy
-                ? `Reading ${progress.done} of ${progress.total}…`
-                : waiting > 0
+                ? `Reading ${progress.done} of ${progress.total}`
+                : waiting
                   ? `Read ${waiting} CV${waiting === 1 ? "" : "s"}`
                   : "All read"}
             </button>
-            <button
-              className="btn-ghost"
-              onClick={() => setRows([])}
-              disabled={busy}
-            >
+            <button className="btn-ghost" onClick={() => setRows([])} disabled={busy}>
               Clear
             </button>
             <span className="text-sm text-muted">
-              {ready} ready to match
+              {ready} ready
               {rows.length - ready > 0 && ` · ${rows.length - ready} other`}
             </span>
           </div>
 
           {busy && (
-            <div className="h-1 w-full overflow-hidden rounded bg-line">
+            <div className="h-1 w-full overflow-hidden rounded-full bg-line">
               <div
-                className="h-full bg-ink transition-all"
+                className="h-full rounded-full bg-accent transition-[width] duration-300"
                 style={{
                   width: `${(progress.done / Math.max(1, progress.total)) * 100}%`,
                 }}
@@ -181,20 +176,31 @@ export default function Uploads({
             </div>
           )}
 
-          <div className="card max-h-80 divide-y divide-line overflow-auto">
+          {failed > 0 && !busy && (
+            <Note tone="warn">
+              {failed} file{failed === 1 ? "" : "s"} failed. Press{" "}
+              <strong>Read</strong> again to retry only those — everything already
+              read is kept.
+            </Note>
+          )}
+
+          <div className="card scroll-thin max-h-[22rem] divide-y overflow-auto">
             {rows.map((row, index) => (
               <div
                 key={`${row.file.name}-${index}`}
-                className="flex items-center gap-3 px-4 py-2 text-sm"
+                className="flex items-center gap-3 px-4 py-2.5 text-sm"
               >
-                <span className="w-6 shrink-0 text-center text-muted">
+                <span className="w-6 shrink-0 text-right text-xs tabular-nums text-muted">
                   {index + 1}
                 </span>
-                <span className="min-w-0 flex-1 truncate">{row.file.name}</span>
+                <span className="min-w-0 basis-56 truncate">{row.file.name}</span>
                 <span className="min-w-0 flex-1 truncate text-muted">
                   {row.detail ?? ""}
                 </span>
-                <span className={`w-28 shrink-0 text-right ${TONE[row.status]}`}>
+                <span className={`chip shrink-0 ${CHIP[row.status]}`}>
+                  {row.status === "reading" && (
+                    <span className="mr-1.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
+                  )}
                   {LABEL[row.status]}
                 </span>
               </div>
@@ -202,6 +208,6 @@ export default function Uploads({
           </div>
         </>
       )}
-    </section>
+    </div>
   );
 }

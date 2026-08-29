@@ -88,6 +88,9 @@ export interface Health {
   model: string;
   providers: string[];
   needs_key: boolean;
+  /** Reading an advert always needs a model, whatever CVs are read with. */
+  can_read_jobs: boolean;
+  job_model: string | null;
 }
 
 async function unwrap<T>(response: Response): Promise<T> {
@@ -115,12 +118,15 @@ export async function parseCV(file: File, provider?: string): Promise<ParsedCV> 
   return unwrap<ParsedCV>(await fetch(`/api/cv${query}`, { method: "POST", body }));
 }
 
-export async function parseJob(text: string, provider?: string): Promise<JobProfile> {
+// The server picks the model for this one: turning an advert into must-have and
+// nice-to-have needs comprehension, so it uses a key whenever one exists,
+// independently of what CVs are being read with.
+export async function parseJob(text: string): Promise<JobProfile> {
   return unwrap<JobProfile>(
     await fetch("/api/job", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, provider }),
+      body: JSON.stringify({ text }),
     })
   );
 }
@@ -150,13 +156,6 @@ export async function matchAll(
     })
   );
 }
-
-export const TIER_COLOUR: Record<Tier, string> = {
-  shortlist: "text-good border-good/30 bg-good/5",
-  review: "text-warn border-warn/30 bg-warn/5",
-  not_a_match: "text-muted border-line bg-wash",
-  not_a_cv: "text-muted border-line bg-wash",
-};
 
 export const STATUS_MARK: Record<Status, string> = {
   met: "✓",

@@ -44,11 +44,52 @@ app.add_middleware(
 )
 
 
+def has_model_key() -> bool:
+    """Is a key-backed provider available at all?"""
+    return bool(
+        os.getenv("GEMINI_API_KEY")
+        or os.getenv("GOOGLE_API_KEY")
+        or os.getenv("ANTHROPIC_API_KEY")
+    )
+
+
+def keyed_provider() -> str | None:
+    """The provider a key unlocks, if any."""
+    if os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"):
+        return "gemini"
+    if os.getenv("ANTHROPIC_API_KEY"):
+        return "claude"
+    return None
+
+
 def settings_for(provider: str | None) -> Settings:
     """Resolve the reader. Falls back to `offline`, which needs no key at all."""
     name = (provider or os.getenv("ATS_PROVIDER") or "offline").lower()
     if name not in PROVIDER_NAMES:
         name = "offline"
+    os.environ["ATS_PROVIDER"] = name
+    settings = Settings()
+    settings.provider = name
+    return settings
+
+
+def settings_for_reading_jobs() -> Settings:
+    """A job description needs comprehension, so it always uses a model.
+
+    Reading CVs and reading an advert are different problems. Rules handle a CV
+    well because most of what matters there is vocabulary, and there may be
+    thousands of them. An advert is one document per vacancy and turning its prose
+    into must-have and nice-to-have is exactly the judgement rules cannot make - so
+    this uses a key whenever one exists, regardless of what CVs are being read with.
+    """
+    name = keyed_provider()
+    if name is None:
+        raise HTTPException(
+            400,
+            "Reading a job description needs a model. Add GEMINI_API_KEY to the "
+            "deployment's environment variables, or use a reference CV instead - "
+            "that route works with no key.",
+        )
     os.environ["ATS_PROVIDER"] = name
     settings = Settings()
     settings.provider = name
@@ -177,6 +218,9 @@ def health() -> dict:
         "providers": PROVIDER_NAMES,
         # `offline` needs no key, so the app is usable with nothing configured.
         "needs_key": settings.provider not in {"offline", "ollama"},
+        # Reading an advert always needs a model, whatever CVs are read with.
+        "can_read_jobs": keyed_provider() is not None,
+        "job_model": keyed_provider(),
     }
 
 
@@ -197,13 +241,7 @@ def parse_job(body: JobText) -> JobProfile:
     """A pasted advert becomes a checklist the recruiter can review and edit."""
     if not body.text.strip():
         raise HTTPException(400, "Paste the job description first.")
-    settings = settings_for(body.provider)
-    if settings.provider == "offline":
-        raise HTTPException(
-            400,
-            "Reading a job description needs a model. Set GEMINI_API_KEY on the "
-            "deployment, or build the requirement list by hand.",
-        )
+    settings = settings_for_reading_jobs()
     try:
         return jobspec.from_text(body.text, settings)
     except ClassificationError as exc:
