@@ -18,7 +18,7 @@ from typing import Literal
 
 from ..job_profile import JobProfile, Requirement
 from ..models import CandidateProfile
-from ..skills import ALIASES, canonical, mentions
+from ..skills import ALIASES, canonical, category_members, implied_by, mentions
 
 Status = Literal["met", "partial", "not_met", "unclear"]
 
@@ -28,6 +28,19 @@ DEGREE_RANK = {
 }
 
 
+#: How a requirement was satisfied. Recorded because "the CV proves it" and
+#: "the CV claims it" are different facts, and an ATS that conflates them cannot
+#: tell an engineer from a keyword-stuffer.
+MatchKind = Literal[
+    "demonstrated",   # used in a job, project or certification
+    "claimed",        # present only in the skills list, nothing behind it
+    "equivalent",     # a different name for the same thing
+    "substitute",     # a comparable tool where the advert allowed one
+    "derived",        # computed, e.g. years from dated roles
+    "absent",
+]
+
+
 @dataclass
 class RequirementResult:
     requirement: str
@@ -35,6 +48,9 @@ class RequirementResult:
     importance: str
     status: Status
     evidence: str = ""
+    match_kind: MatchKind = "absent"
+    #: 0-100. Low confidence is a prompt for a human, not a quiet decision.
+    confidence: int = 0
 
     @property
     def is_must(self) -> bool:
@@ -142,28 +158,103 @@ def _requirement_terms(text: str) -> list[str]:
     return list(seen)
 
 
-def _check_skill(req: Requirement, profile: CandidateProfile) -> RequirementResult:
-    haystack = profile.all_text()
-    terms = _requirement_terms(req.text)
+def _skill_hit(text: str, terms: list[str]) -> str | None:
+    """The first term this text demonstrates, or None."""
+    for term in terms:
+        if mentions(text, term):
+            return term
+    return None
 
-    # The skills list is the strongest signal.
+
+def _quote(evidence_source: CandidateProfile, term: str) -> str:
+    """The line from the CV that shows this skill, so a decision can be checked."""
+    for job in evidence_source.experience:
+        for line in job.highlights:
+            if mentions(line, term):
+                return f'"{line[:110]}"'
+        if mentions(f"{job.title} {job.company}", term):
+            return f"{job.title} at {job.company}".strip(" at")
+    for project in evidence_source.projects:
+        if mentions(project, term):
+            return f'"{project[:110]}"'
+    for certificate in evidence_source.certifications:
+        if mentions(certificate, term):
+            return certificate[:110]
+    return ""
+
+
+def _check_skill(req: Requirement, profile: CandidateProfile) -> RequirementResult:
+    """Prefer what the CV proves over what it claims.
+
+    A skill used in a job, project or certification is evidence. The same word in
+    a skills list is a claim, and is reported as such: "claimed" with partial
+    status rather than a clean match. Without that distinction a wall of thirty
+    keywords scores like a decade of work, which is the single easiest way to game
+    an ATS.
+    """
+    terms = _requirement_terms(req.text)
+    evidence = profile.evidence_text()
+
+    # 1. Demonstrated - the strongest thing a CV can offer.
+    hit = _skill_hit(evidence, terms)
+    if hit:
+        quote = _quote(profile, hit) or "shown in the experience section"
+        canonical_name = canonical(hit)
+        equivalent = canonical_name.lower() not in req.text.lower()
+        return RequirementResult(
+            req.text, req.kind, req.importance, "met", quote,
+            match_kind="equivalent" if equivalent else "demonstrated",
+            confidence=90 if not equivalent else 82,
+        )
+
+    # 2. Implied by something they demonstrably used. Writing PySpark jobs is
+    #    writing Python, and failing that candidate on the literal word would be a
+    #    false negative on somebody plainly qualified.
+    #    Run this over the requirement's skill terms, not its whole sentence:
+    #    "Python for production data work" is not a skill name, so canonicalising
+    #    the phrase finds nothing and the inference never fires.
+    for term in terms:
+        for source in implied_by(term):
+            if _skill_hit(evidence, [source]):
+                return RequirementResult(
+                    req.text, req.kind, req.importance, "met",
+                    f"{source} implies {canonical(term)} - "
+                    f"{_quote(profile, source) or 'used in a role'}",
+                    match_kind="equivalent", confidence=72,
+                )
+
+    # 3. A comparable tool, but only where the advert invited one.
+    for member in category_members(req.text):
+        if _skill_hit(evidence, [member]):
+            return RequirementResult(
+                req.text, req.kind, req.importance, "met",
+                f"{member} - {_quote(profile, member) or 'used in a role'}",
+                match_kind="substitute", confidence=78,
+            )
+        if any(mentions(skill, member) for skill in profile.skills):
+            return RequirementResult(
+                req.text, req.kind, req.importance, "partial",
+                f"lists {member}, a comparable tool, but does not show using it",
+                match_kind="substitute", confidence=45,
+            )
+
+    # 4. Claimed in the skills list and nowhere else. True, and worth saying.
     for term in terms:
         for skill in profile.skills:
             if mentions(skill, term) or mentions(term, skill):
+                thin = not profile.has_real_experience
                 return RequirementResult(
-                    req.text, req.kind, req.importance, "met", f"skills: {skill}"
+                    req.text, req.kind, req.importance,
+                    "unclear" if thin else "partial",
+                    f"listed as a skill ({skill}), but not shown in any role or project",
+                    match_kind="claimed",
+                    confidence=25 if thin else 50,
                 )
 
-    # Then anything the CV actually demonstrates - a tool used in a project counts
-    # as much as one listed in a skills section.
-    for term in terms:
-        if mentions(haystack, term):
-            return RequirementResult(
-                req.text, req.kind, req.importance, "met",
-                f"'{term}' appears in the CV",
-            )
-
-    return RequirementResult(req.text, req.kind, req.importance, "not_met")
+    return RequirementResult(
+        req.text, req.kind, req.importance, "not_met",
+        "nothing in the CV supports this", match_kind="absent", confidence=88,
+    )
 
 
 def _check_experience(req: Requirement, profile: CandidateProfile) -> RequirementResult:
@@ -173,15 +264,22 @@ def _check_experience(req: Requirement, profile: CandidateProfile) -> Requiremen
         held = profile.total_years_experience
         evidence = f"{held:g} years of professional experience"
         if held >= needed:
-            return RequirementResult(req.text, req.kind, req.importance, "met", evidence)
-        # Close enough that a human should look rather than the system deciding.
+            return RequirementResult(
+                req.text, req.kind, req.importance, "met", evidence,
+                match_kind="derived", confidence=80,
+            )
+        # A year short is a near miss a person should look at. Three years short
+        # of a senior role is not - scoring those the same is how a junior ends up
+        # ranked beside somebody with a decade.
         if held >= needed - 1:
             return RequirementResult(
                 req.text, req.kind, req.importance, "partial",
-                f"{evidence}, {needed:g} asked for",
+                f"{evidence}, {needed:g} asked for", match_kind="derived",
+                confidence=75,
             )
         return RequirementResult(
-            req.text, req.kind, req.importance, "not_met", evidence
+            req.text, req.kind, req.importance, "not_met",
+            f"{evidence}, {needed:g} asked for", match_kind="absent", confidence=85,
         )
 
     # Domain experience: "reporting in retail or public sector".
@@ -198,7 +296,8 @@ def _check_education(req: Requirement, profile: CandidateProfile) -> Requirement
     held_rank = DEGREE_RANK.get(profile.highest_degree, 0)
     if held_rank == 0:
         return RequirementResult(
-            req.text, req.kind, req.importance, "not_met", "no degree found on the CV"
+            req.text, req.kind, req.importance, "not_met",
+            "no degree found on the CV", match_kind="absent", confidence=80,
         )
 
     degree = next(
@@ -213,7 +312,8 @@ def _check_education(req: Requirement, profile: CandidateProfile) -> Requirement
 
     if held_rank < wanted_rank:
         return RequirementResult(
-            req.text, req.kind, req.importance, "not_met", evidence
+            req.text, req.kind, req.importance, "not_met", evidence,
+            match_kind="derived", confidence=85,
         )
 
     # Is the field one the advert asked for? Adverts usually say "or a related
@@ -223,18 +323,44 @@ def _check_education(req: Requirement, profile: CandidateProfile) -> Requirement
         field_text = f"{degree.field_of_study} {degree.institution}".lower()
         if any(h in field_text for h in wanted_fields):
             return RequirementResult(
-                req.text, req.kind, req.importance, "met", evidence
+                req.text, req.kind, req.importance, "met", evidence,
+                match_kind="demonstrated", confidence=92,
             )
-        if "related" in text:
+
+        # "or a related field" is in the advert for a reason. Computer and
+        # Systems Engineering is related to Computer Science by any reading, and
+        # refusing it on an exact-string test rejects the candidate the clause
+        # was written to include.
+        if "related" in text or "or equivalent" in text:
+            wanted_words = {
+                word
+                for field in wanted_fields
+                for word in field.split()
+                if len(word) > 3
+            }
+            held_words = set(re.findall(r"[a-z]{4,}", field_text))
+            if wanted_words & held_words:
+                shared = ", ".join(sorted(wanted_words & held_words))
+                return RequirementResult(
+                    req.text, req.kind, req.importance, "met",
+                    f"{evidence} - a related field ({shared})",
+                    match_kind="equivalent", confidence=70,
+                )
             return RequirementResult(
                 req.text, req.kind, req.importance, "unclear",
-                f"{evidence} - related field is a judgement call",
+                f"{evidence} - whether this counts as related is a human call",
+                match_kind="derived", confidence=40,
             )
+
         return RequirementResult(
-            req.text, req.kind, req.importance, "partial", evidence
+            req.text, req.kind, req.importance, "partial", evidence,
+            match_kind="derived", confidence=55,
         )
 
-    return RequirementResult(req.text, req.kind, req.importance, "met", evidence)
+    return RequirementResult(
+        req.text, req.kind, req.importance, "met", evidence,
+        match_kind="demonstrated", confidence=85,
+    )
 
 
 def _check_language(req: Requirement, profile: CandidateProfile) -> RequirementResult:

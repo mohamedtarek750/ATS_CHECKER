@@ -22,3 +22,6 @@ data/output/candidates.db
 node_modules/
 .next/
 next-env.d.ts
+
+# audit scratch cases
+audit/_cases/

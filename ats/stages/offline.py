@@ -35,9 +35,13 @@ YEAR = re.compile(r"\b(19[89]\d|20[0-4]\d)\b")
 MONTH = (
     r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*"
 )
+#: Separators people actually use between two dates. Restricting this to a hyphen
+#: loses every role on a CV that writes "2016>2020" or "2016 .. 2020", and losing
+#: the roles means losing all the evidence.
+_RANGE_SEP = r"(?:-{1,2}|–|—|>|=>|→|/|\.{2,}|to|until|through|till)"
 DATE_RANGE = re.compile(
-    rf"((?:{MONTH}\s+)?\d{{4}})\s*(?:-|–|—|to|until)\s*"
-    rf"((?:{MONTH}\s+)?\d{{4}}|present|current|now|till date)",
+    rf"((?:{MONTH}\s+)?\d{{4}})\s*{_RANGE_SEP}\s*"
+    rf"((?:{MONTH}\s+)?\d{{4}}|present|current|now|today|ongoing|till date)",
     re.IGNORECASE,
 )
 
@@ -142,6 +146,52 @@ def _guess_name(text: str, email: str) -> str:
     return ""
 
 
+#: Degree words, so "BSc Computer Science, Cairo University" can be split into
+#: its parts without the field swallowing the university name.
+_DEGREE_LEAD = re.compile(
+    r"\b(?:b\.?sc|bsc|b\.?a|ba|b\.?eng|beng|b\.?tech|m\.?sc|msc|m\.?a|mba|"
+    r"m\.?eng|meng|ph\.?d|phd|bachelor(?:'s)?|master(?:'s)?|diploma|doctorate)"
+    r"\s*(?:degree)?\s*(?:in|of)?\s*",
+    re.IGNORECASE,
+)
+
+
+#: The same degree words, for CVs that put them after the subject.
+_DEGREE_TRAIL = re.compile(
+    r"\s*\b(?:b\.?sc|bsc|b\.?a|b\.?eng|beng|b\.?tech|m\.?sc|msc|mba|m\.?eng|"
+    r"meng|ph\.?d|phd|bachelor(?:'s)?|master(?:'s)?|degree|diploma)\b.*",
+    re.IGNORECASE,
+)
+
+
+def _field_of_study(line: str, institution: str) -> str:
+    """The subject, not the university.
+
+    "BSc Computer and Systems Engineering, Ain Shams University, 2017" has no
+    "in" or "of" to key off, and the old pattern returned the university. A field
+    read as an institution makes an education requirement unmatchable.
+    """
+    text = line
+    if institution:
+        text = text.replace(institution, " ")
+    match = _DEGREE_LEAD.search(text)
+    if match:
+        # "BSc Computer Science" - the subject follows the degree word.
+        text = text[match.end():]
+    else:
+        # "Computer Engineering BSc" - the degree word trails it instead. Both
+        # orderings are common and dropping one loses the subject entirely.
+        trailing = _DEGREE_TRAIL.search(text)
+        if trailing:
+            text = text[: trailing.start()]
+    # The subject runs up to the first comma, dash or year.
+    field = re.split(r"[,;|]|\s[-\u2013\u2014]\s|\b(?:19|20)\d{2}\b", text)[0]
+    field = re.sub(r"\b(?:university|college|institute|academy|school)\b.*", "",
+                   field, flags=re.IGNORECASE)
+    field = field.strip(" ,.-\t")
+    return field[:60] if 2 < len(field) < 70 else ""
+
+
 def _education(text: str, sections: dict[str, str]) -> list[Education]:
     body = sections.get("education", "")
     haystack = body or text
@@ -163,10 +213,7 @@ def _education(text: str, sections: dict[str, str]) -> list[Education]:
             if match:
                 institution = match.group(1).strip()
                 break
-        field = ""
-        field_match = re.search(r"(?:in|of)\s+([A-Za-z&\s]{3,45})", line, re.IGNORECASE)
-        if field_match:
-            field = field_match.group(1).strip(" ,.-")
+        field = _field_of_study(line, institution)
         entries.append(
             Education(
                 degree=level,           # type: ignore[arg-type]
@@ -178,25 +225,49 @@ def _education(text: str, sections: dict[str, str]) -> list[Education]:
     return entries[:5]
 
 
-def _experience(sections: dict[str, str]) -> tuple[list[Experience], float]:
-    """Roles and total professional years, from the dated lines in the CV.
+#: Nothing before this is a plausible professional start date on a CV.
+_EARLIEST_YEAR = 1960
+#: A role cannot start in the future.
+_LATEST_SLACK = 1
 
-    Years are computed from the date ranges rather than from any claim in the
-    text, and overlapping ranges are merged so two concurrent jobs are not
-    counted twice.
+
+def _experience(
+    sections: dict[str, str], fallback: str = ""
+) -> tuple[list[Experience], float]:
+    """Roles, their bullets, and total professional years.
+
+    Years come from the date ranges rather than any claim in the text, overlapping
+    ranges are merged so two concurrent jobs are not counted twice, and impossible
+    ranges are discarded rather than believed - a CV listing 1995-2035 must not
+    read as forty years of experience.
+
+    The bullets matter as much as the dates: they are the only evidence that a
+    skill was ever used, as opposed to listed.
     """
-    body = sections.get("experience", "")
+    # A CV with headings like "WHERE" or "WHAT I DO" has no section we recognise.
+    # Scanning the whole document for dated role lines still finds the work, and
+    # losing every role over a heading style is exactly the formatting penalty an
+    # ATS should not impose.
+    body = sections.get("experience") or fallback
+    lines = body.split(chr(10))
     entries: list[Experience] = []
     spans: list[tuple[float, float]] = []
     today = date.today().year + date.today().month / 12
 
-    for line in body.split("\n"):
+    role_indices: list[int] = []
+    for index, line in enumerate(lines):
+        if DATE_RANGE.search(line):
+            role_indices.append(index)
+
+    for position, index in enumerate(role_indices):
+        line = lines[index]
         match = DATE_RANGE.search(line)
-        if not match:
+        if match is None:
             continue
         start_years = YEAR.findall(match.group(1))
         if not start_years:
             continue
+
         start = float(start_years[0])
         end_text = match.group(2).lower()
         if any(w in end_text for w in ("present", "current", "now", "till")):
@@ -205,27 +276,42 @@ def _experience(sections: dict[str, str]) -> tuple[list[Experience], float]:
             end_years = YEAR.findall(end_text)
             end = float(end_years[0]) if end_years else start
 
-        title = line[: match.start()].strip(" -|,–—\t")
+        # Discard what cannot be true rather than believing it.
+        plausible = (
+            _EARLIEST_YEAR <= start <= today + _LATEST_SLACK
+            and _EARLIEST_YEAR <= end <= today + _LATEST_SLACK
+            and end >= start
+        )
+
+        title = line[: match.start()].strip(" -|,\u2013\u2014\t")
         company = ""
-        for separator in (" - ", " | ", " at ", ", ", " – "):
+        for separator in (" - ", " | ", " at ", " @ ", ", ", " \u2013 "):
             if separator in title:
                 head, _, tail = title.partition(separator)
                 title, company = head.strip(), tail.strip()
                 break
+
+        # Everything between this role and the next one is what they did in it.
+        stop = role_indices[position + 1] if position + 1 < len(role_indices) else len(lines)
+        highlights = [
+            candidate.strip(" -\u2022\u00b7*\t")
+            for candidate in lines[index + 1 : stop]
+            if 8 < len(candidate.strip(" -\u2022\u00b7*\t")) < 300
+        ][:6]
 
         internship = "intern" in line.lower()
         entries.append(
             Experience(
                 title=title[:80] or "Role",
                 company=company[:80],
-                start=str(int(start)),
-                end="present" if end >= today - 0.1 else str(int(end)),
-                years=round(max(0.0, end - start), 1),
+                start=str(int(start)) if plausible else "",
+                end=("present" if end >= today - 0.1 else str(int(end))) if plausible else "",
+                years=round(max(0.0, end - start), 1) if plausible else 0.0,
                 is_internship=internship,
-                highlights=[],
+                highlights=highlights,
             )
         )
-        if not internship:
+        if plausible and not internship:
             spans.append((start, max(end, start)))
 
     # Merge overlaps so two concurrent roles are not counted twice.
@@ -285,6 +371,20 @@ def _document_type(text: str, sections: dict[str, str], has_contact: bool) -> tu
         return "cv_resume", True
     if len(sections) >= 3:
         return "cv_resume", True
+
+    # No recognisable headings. Judge by what the document contains instead:
+    # dated roles, a degree, and named skills are what make a CV a CV, and a
+    # candidate must not be discarded for using their own headings.
+    signals = 0
+    signals += bool(has_contact)
+    signals += len(DATE_RANGE.findall(text)) >= 2
+    signals += any(
+        any(word in line.lower() for _, words in DEGREE_WORDS for word in words)
+        for line in text.split(chr(10))
+    )
+    signals += len([n for n in ALIASES if mentions(text, n)]) >= 3
+    if signals >= 3:
+        return "cv_resume", True
     return "other_document", False
 
 
@@ -302,7 +402,7 @@ def extract_profile(doc: ParsedDoc) -> CandidateProfile:
     links = list(dict.fromkeys(LINK.findall(text)))[:5]
 
     education = _education(text, sections)
-    experience, years = _experience(sections)
+    experience, years = _experience(sections, fallback=text)
     skills = _skills(text, sections)
 
     kind, is_cv = _document_type(text, sections, bool(email or phones))

@@ -119,8 +119,30 @@ class CandidateProfile(BaseModel):
                 best = entry.degree
         return best  # type: ignore[return-value]
 
+    def evidence_text(self) -> str:
+        """Only what the candidate has actually SHOWN doing.
+
+        Deliberately excludes the skills list. A skill named in a job, a project or
+        a certification is evidence; the same word in a skills wall is a claim.
+        Without this separation an ATS cannot tell a keyword-stuffer from an
+        engineer, because to a string search they look identical.
+        """
+        parts: list[str] = [self.headline]
+        for job in self.experience:
+            parts.append(f"{job.title} {job.company} " + " ".join(job.highlights))
+        parts.extend(self.projects)
+        parts.extend(self.certifications)
+        for edu in self.education:
+            parts.append(f"{edu.field_of_study} {edu.institution}")
+        return " ".join(parts).lower()
+
+    @property
+    def has_real_experience(self) -> bool:
+        """Any non-internship role at all. A claim from someone with none is thin."""
+        return any(not job.is_internship for job in self.experience)
+
     def all_text(self) -> str:
-        """Everything the candidate demonstrates, for fuzzy requirement lookups."""
+        """Everything the candidate mentions, claims included."""
         parts = [self.headline, " ".join(self.skills), " ".join(self.certifications)]
         for job in self.experience:
             parts.append(f"{job.title} {job.company} " + " ".join(job.highlights))

@@ -123,10 +123,53 @@ def test_a_skill_only_shown_in_a_project_counts():
 
 
 def test_alternatives_are_satisfied_by_either():
-    candidate = make_candidate(skills=["SQL", "Tableau", "Excel", "Power Query"])
+    """Either side of an "or" satisfies it, and the evidence names which."""
+    candidate = make_candidate(
+        skills=["SQL", "Tableau", "Excel", "Power Query"], certifications=[]
+    )
     result = match_stage.match(candidate, make_job())
     both = next(r for r in result.results if "Power BI or Tableau" in r.requirement)
-    assert both.status == "met" and "Tableau" in both.evidence
+    # Listed but never shown: honestly reported as a claim, not a clean match.
+    # This is the distinction that separates an engineer from a keyword-stuffer,
+    # and it has to hold for the ordinary case too, not only the adversarial one.
+    assert both.status == "partial"
+    assert both.match_kind == "claimed"
+    assert "Tableau" in both.evidence, both.evidence
+
+    # Shown in a role: the same requirement, now genuinely met.
+    shown = make_candidate(
+        skills=["SQL", "Excel"],
+        certifications=[],
+        experience=[
+            Experience(
+                title="Data Analyst", company="Alameda", start="2022", end="present",
+                years=3, is_internship=False,
+                highlights=["Built the weekly pack in Tableau for 40 users"],
+            )
+        ],
+    )
+    demonstrated = next(
+        r
+        for r in match_stage.match(shown, make_job()).results
+        if "Power BI or Tableau" in r.requirement
+    )
+    assert demonstrated.status == "met"
+    assert demonstrated.match_kind == "demonstrated"
+    assert demonstrated.confidence > both.confidence
+
+    # A certification naming the other side is stronger evidence than a skills
+    # entry, and is preferred when present.
+    certified = make_candidate(
+        skills=["SQL", "Excel"],
+        certifications=["Microsoft PL-300 Power BI Data Analyst"],
+    )
+    via_cert = next(
+        r
+        for r in match_stage.match(certified, make_job()).results
+        if "Power BI or Tableau" in r.requirement
+    )
+    assert via_cert.status == "met"
+    assert "PL-300" in via_cert.evidence
 
 
 def test_a_near_miss_on_years_is_partial_not_a_failure():
@@ -189,8 +232,17 @@ def test_a_single_near_miss_lands_in_review_not_rejected():
 
 def test_ordering_puts_the_best_fit_first():
     job = make_job()
+    # "Weak" has to be weak everywhere the engine now looks: a Power BI
+    # certification or a Data Analyst headline is evidence, so leaving those in
+    # would make this candidate a reasonable match rather than a poor one.
     results = [
-        match_stage.match(make_candidate(full_name="Weak", skills=["Excel"]), job),
+        match_stage.match(
+            make_candidate(
+                full_name="Weak", skills=["Excel"], certifications=[],
+                headline="Office Administrator", experience=[],
+            ),
+            job,
+        ),
         match_stage.match(make_candidate(full_name="Strong"), job),
         match_stage.match(make_candidate(full_name="Close", total_years_experience=1.5), job),
     ]
