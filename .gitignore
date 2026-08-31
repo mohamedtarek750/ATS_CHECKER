@@ -25,3 +25,6 @@ next-env.d.ts
 
 # audit scratch cases
 audit/_cases/
+
+# TypeScript incremental build cache
+tsconfig.tsbuildinfo
