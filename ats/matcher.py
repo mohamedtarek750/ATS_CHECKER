@@ -30,6 +30,12 @@ def _provider(settings: Settings):
         raise FatalScreeningError(str(exc).strip("\"'")) from exc
 
 
+#: Word count above which an advert is expected to state real requirements.
+_SUBSTANTIAL_ADVERT = 120
+#: Below this, a checklist cannot meaningfully separate applicants.
+_MIN_REQUIREMENTS = 3
+
+
 def parse_job_description(text: str, settings: Settings) -> JobProfile:
     """Turn a pasted advert into a structured, reviewable job profile.
 
@@ -50,6 +56,20 @@ def parse_job_description(text: str, settings: Settings) -> JobProfile:
         raise ClassificationError("Could not read a job profile out of that text.")
 
     profile.source_text = text.strip()
+
+    # A long advert that yields one or two requirements was not read - the model
+    # failed over to a weaker one, or was cut short. Returning it anyway would
+    # screen every applicant against a single line and shortlist nearly all of
+    # them, and the recruiter would have no way to tell that from a genuinely
+    # short advert. Better to say so and let them try again.
+    if len(text.split()) >= _SUBSTANTIAL_ADVERT and len(profile.requirements) < _MIN_REQUIREMENTS:
+        raise ClassificationError(
+            f"Only {len(profile.requirements)} requirement(s) came back from an "
+            f"advert of {len(text.split())} words, so the advert was not read "
+            f"properly - screening against that would shortlist almost everyone. "
+            f"Try again; if it keeps happening the model may have hit its daily "
+            f"free-tier quota and failed over to a weaker one."
+        )
     return profile
 
 

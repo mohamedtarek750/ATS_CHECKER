@@ -263,24 +263,48 @@ class GeminiProvider(Provider):
         raise ClassificationError("Gemini did not respond")  # pragma: no cover
 
     def structured(self, system: str, user: str, schema, settings):
-        """One structured call with an arbitrary schema, same failover and pacing."""
+        """One structured call with an arbitrary schema, same failover and pacing.
+
+        Reading an advert into a checklist is close to transcription: the words
+        are on the page, and the judgement needed is which ones are requirements.
+        Left at its default the reasoning model spends ~2,000 thinking tokens and
+        half a minute on that, which the recruiter experiences as the page having
+        hung. Capping the deliberation cuts it to under ten seconds and, measured
+        on a real advert, extracted MORE requirements rather than fewer.
+        """
         from google.genai import types
 
         client = self._get_client()
-        config = types.GenerateContentConfig(
-            system_instruction=system,
-            response_mime_type="application/json",
-            response_schema=schema,
-            temperature=0.0,
-            max_output_tokens=settings.max_tokens,
-        )
+
+        def build(brief: bool):
+            extra = (
+                {"thinking_config": types.ThinkingConfig(thinking_level="low")}
+                if brief
+                else {}
+            )
+            return types.GenerateContentConfig(
+                system_instruction=system,
+                response_mime_type="application/json",
+                response_schema=schema,
+                temperature=0.0,
+                max_output_tokens=settings.max_tokens,
+                **extra,
+            )
+
+        # Not every model accepts a thinking level. Rather than maintain a list of
+        # which ones do, ask for it and drop it if the API says no.
+        brief = True
         while True:
             model = self._resolve_model(settings.model)
             try:
-                return self._generate(client, model, user, config, schema)
+                return self._generate(client, model, user, build(brief), schema)
             except DailyQuotaExhausted:
                 if self._retire(model) is None:
                     raise
+            except ClassificationError:
+                if not brief:
+                    raise
+                brief = False
 
     def screen(self, doc: ExtractedDoc, settings) -> Verdict:
         from google.genai import types

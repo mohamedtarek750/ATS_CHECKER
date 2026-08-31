@@ -184,6 +184,41 @@ def test_unknown_provider_is_reported_clearly():
         raise AssertionError("expected a FatalScreeningError")
 
 
+def test_an_advert_that_reads_as_almost_nothing_is_refused():
+    """A one-line checklist shortlists everyone, and looks like it worked."""
+    from ats import matcher
+    from ats.job_profile import JobProfile, Requirement
+    from ats.providers.base import ClassificationError
+
+    advert = " ".join(["requirement"] * 200)
+
+    class Thin:
+        def structured(self, system, user, schema, settings):
+            return JobProfile(
+                title="ML Engineer", seniority="Mid", summary="x",
+                min_years_experience=0,
+                requirements=[Requirement(text="A degree", kind="education",
+                                          importance="must_have")],
+            )
+
+    original = matcher._provider
+    matcher._provider = lambda settings: Thin()
+    try:
+        try:
+            matcher.parse_job_description(advert, Settings())
+        except ClassificationError as exc:
+            assert "not read properly" in str(exc)
+        else:
+            raise AssertionError("a one-requirement checklist was accepted")
+
+        # A genuinely short advert is still allowed - the guard is about a long
+        # advert coming back empty, not about adverts being brief.
+        profile = matcher.parse_job_description("React developer wanted.", Settings())
+        assert len(profile.requirements) == 1
+    finally:
+        matcher._provider = original
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):
