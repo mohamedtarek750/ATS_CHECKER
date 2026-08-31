@@ -58,6 +58,27 @@ export interface RequirementResult {
   explanation: string;
 }
 
+export interface Role {
+  title: string;
+  company: string;
+  years: number;
+  is_internship: boolean;
+  relevance: "core" | "adjacent" | "unrelated" | "unclear";
+  demonstrates: string[];
+  has_outcomes: boolean;
+  note: string;
+}
+
+export interface ExperienceReview {
+  has_experience: boolean;
+  total_years: number;
+  relevant_years: number;
+  shown_in_work: number;
+  checkable: number;
+  verdict: string;
+  roles: Role[];
+}
+
 export interface Ranked {
   filename: string;
   name: string;
@@ -71,6 +92,7 @@ export interface Ranked {
   tier: Tier;
   tier_label: string;
   reason: string;
+  experience: ExperienceReview;
   must_met: number;
   must_total: number;
   nice_met: number;
@@ -241,6 +263,21 @@ export const SECTION_WORD: Record<SectionStatus, string> = {
 export const PLACEMENT_DEMONSTRATED = "Demonstrated in experience or projects";
 export const PLACEMENT_LISTED = "Present in Skills, limited supporting evidence";
 export const PLACEMENT_MISSING = "Not mentioned anywhere in the CV";
+
+// How relevant a single role is to the vacancy.
+export const RELEVANCE_TONE: Record<string, string> = {
+  core: "bg-good-wash text-good",
+  adjacent: "bg-warn-wash text-warn",
+  unclear: "raised text-muted",
+  unrelated: "raised text-muted",
+};
+
+export const RELEVANCE_WORD: Record<string, string> = {
+  core: "Directly relevant",
+  adjacent: "Partly relevant",
+  unclear: "Not described",
+  unrelated: "Unrelated",
+};
 
 export const PRIORITY_TONE: Record<string, string> = {
   high: "bg-bad-wash text-bad",

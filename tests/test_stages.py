@@ -476,6 +476,110 @@ def test_the_same_requirement_listed_twice_is_scored_once():
     assert job.requirements[0].importance == "must_have"
 
 
+# --------------------------------------------------------------------------
+# Is there experience, and is it the experience this job asked for?
+# --------------------------------------------------------------------------
+def _worker(*roles) -> CandidateProfile:
+    return make_candidate(
+        experience=list(roles),
+        total_years_experience=sum(r.years for r in roles),
+        skills=["SQL", "Power BI"], certifications=[],
+    )
+
+
+def _role(title, years, highlights, internship=False) -> Experience:
+    return Experience(
+        title=title, company="Acme", start="2020", end="present", years=years,
+        is_internship=internship, highlights=list(highlights),
+    )
+
+
+def test_ten_years_in_another_field_is_not_ten_relevant_years():
+    """The failure this exists to stop: "10 years" satisfying "3+ years"."""
+    job = make_job()
+    changer = _worker(_role("Site Engineer", 10, [
+        "Supervised concrete pours and site safety.",
+        "Managed subcontractor schedules.",
+    ]))
+    result = match_stage.match(changer, job)
+    review = result.experience
+
+    assert review.has_experience
+    assert review.total_years == 10
+    assert review.relevant_years == 0
+    assert review.roles[0].relevance == "unrelated"
+
+    years = next(r for r in result.results if "2 years" in r.requirement)
+    # Not a rejection - a decade of work is real and might transfer. But it is
+    # not a clean "met" either, and the reason says which is which.
+    assert years.status == "partial"
+    assert "only 0 of it evidences this job" in years.explanation
+
+
+def test_relevant_work_meets_the_years_requirement_outright():
+    job = make_job()
+    analyst = _worker(_role("Data Analyst", 4, [
+        "Built the weekly pack in Power BI for 40 users.",
+        "Rewrote the stock-cover query in SQL.",
+    ]))
+    result = match_stage.match(analyst, job)
+    review = result.experience
+
+    assert review.relevant_years == 4
+    assert review.roles[0].relevance == "core"
+    assert review.roles[0].has_outcomes, "40 users is a measurable outcome"
+    assert set(review.roles[0].demonstrates) >= {"Strong SQL", "Power BI or Tableau"}
+    assert next(r for r in result.results if "2 years" in r.requirement).status == "met"
+
+
+def test_only_the_relevant_half_of_a_mixed_career_counts():
+    job = make_job()
+    mixed = _worker(
+        _role("Data Analyst", 2, ["Built SQL reports and Power BI dashboards."]),
+        _role("Sales Representative", 6, ["Sold packaging to retail clients."]),
+    )
+    review = match_stage.match(mixed, job).experience
+    assert review.total_years == 8
+    assert review.relevant_years == 2
+    assert [r.relevance for r in review.roles] == ["core", "unrelated"]
+
+
+def test_a_role_the_cv_never_describes_is_unclear_not_unrelated():
+    """A thin CV is a fact about the document, not a verdict on the person."""
+    job = make_job()
+    terse = _worker(_role("Warehouse Supervisor", 5, []))
+    review = match_stage.match(terse, job).experience
+
+    assert review.roles[0].relevance == "unclear"
+    # Counted, because calling it irrelevant would be a claim the page does not
+    # support - and the verdict says so out loud.
+    assert review.relevant_years == 5
+    assert "does not describe" in review.verdict
+
+
+def test_no_experience_is_reported_plainly():
+    job = make_job()
+    graduate = make_candidate(experience=[], total_years_experience=0.0,
+                              certifications=[])
+    review = match_stage.match(graduate, job).experience
+    assert not review.has_experience
+    assert review.relevant_years == 0
+    assert "No professional experience" in review.verdict
+    assert review.roles == []
+
+
+def test_relevant_years_never_exceed_the_total():
+    """Role durations and the computed total can disagree; the panel cannot."""
+    job = make_job()
+    odd = make_candidate(
+        total_years_experience=1.5,
+        experience=[_role("Data Analyst", 2.5, ["Wrote SQL for the weekly pack."])],
+        certifications=[],
+    )
+    review = match_stage.match(odd, job).experience
+    assert review.relevant_years <= review.total_years
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):

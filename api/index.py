@@ -188,6 +188,31 @@ class RequirementOut(BaseModel):
     explanation: str = ""
 
 
+class RoleOut(BaseModel):
+    title: str
+    company: str
+    years: float
+    is_internship: bool
+    #: core / adjacent / unrelated / unclear
+    relevance: str
+    #: Requirements this role, on its own, shows the person doing.
+    demonstrates: list[str]
+    has_outcomes: bool
+    note: str
+
+
+class ExperienceOut(BaseModel):
+    """Whether there is experience, and whether it is the experience wanted."""
+
+    has_experience: bool
+    total_years: float
+    relevant_years: float
+    shown_in_work: int
+    checkable: int
+    verdict: str
+    roles: list[RoleOut]
+
+
 class RankedOut(BaseModel):
     filename: str
     name: str
@@ -203,6 +228,7 @@ class RankedOut(BaseModel):
     tier: str
     tier_label: str
     reason: str
+    experience: ExperienceOut
     must_met: int
     must_total: int
     nice_met: int
@@ -367,6 +393,27 @@ def match(body: MatchRequest) -> MatchResponse:
                 reason=entry.reason,
                 must_met=entry.match.must_met,
                 must_total=entry.match.must_total,
+                experience=ExperienceOut(
+                    has_experience=entry.match.experience.has_experience,
+                    total_years=entry.match.experience.total_years,
+                    relevant_years=entry.match.experience.relevant_years,
+                    shown_in_work=entry.match.experience.shown_in_work,
+                    checkable=entry.match.experience.checkable,
+                    verdict=entry.match.experience.verdict,
+                    roles=[
+                        RoleOut(
+                            title=role.title,
+                            company=role.company,
+                            years=role.years,
+                            is_internship=role.is_internship,
+                            relevance=role.relevance,
+                            demonstrates=role.demonstrates,
+                            has_outcomes=role.has_outcomes,
+                            note=role.note,
+                        )
+                        for role in entry.match.experience.roles
+                    ],
+                ),
                 nice_met=entry.match.nice_met,
                 nice_total=entry.match.nice_total,
                 requirements=[

@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from ..job_profile import JobProfile, Requirement
-from ..models import CandidateProfile
+from ..models import CandidateProfile, Experience
 from ..skills import (
     ALIASES,
     canonical,
@@ -125,6 +125,256 @@ class RequirementResult:
         return self.status == "met"
 
 
+#: How a single role relates to the job being filled.
+#: "unclear" is not a polite "unrelated" - it means the CV did not say enough to
+#: judge, which is a fact about the document rather than about the person, and
+#: must not be scored as though the role were irrelevant.
+Relevance = Literal["core", "adjacent", "unrelated", "unclear"]
+
+#: Numbers, percentages and money in a bullet - the mark of an outcome rather
+#: than a duty. Deliberately crude: it is reported to a human, never scored.
+_OUTCOME = re.compile(
+    r"\d+\s*%|\b\d[\d,.]*\s*(?:k|m|bn|million|users|customers|records|rows|"
+    r"hours|days|queries|models|reports|clients|transactions|requests)\b"
+    r"|\b(?:reduced|increased|improved|cut|saved|grew|doubled|halved)\b",
+    re.I,
+)
+
+
+@dataclass
+class RoleReview:
+    """One job on the CV, and what it is worth to this vacancy."""
+
+    title: str
+    company: str
+    years: float
+    is_internship: bool
+    relevance: Relevance = "unclear"
+    #: Requirements this role, on its own, shows the person actually doing.
+    demonstrates: list[str] = field(default_factory=list)
+    has_outcomes: bool = False
+    note: str = ""
+
+    @property
+    def counted_years(self) -> float:
+        """Years this role contributes toward "relevant experience"."""
+        if self.relevance == "core":
+            return self.years
+        if self.relevance == "adjacent":
+            return self.years / 2
+        if self.relevance == "unclear":
+            # The CV described the role too thinly to judge. Counting it as zero
+            # would punish a candidate for terse writing rather than for their
+            # career, so it counts - and the panel says it could not be checked.
+            return self.years
+        return 0.0
+
+
+@dataclass
+class ExperienceReview:
+    """Does this person have experience, and is it the experience being asked for?
+
+    Years alone answer neither question. Ten years in a different field is ten
+    years, and an ATS that reports it as "meets 2+ years of experience" has told
+    the recruiter something true and useless.
+    """
+
+    has_experience: bool = False
+    total_years: float = 0.0
+    relevant_years: float = 0.0
+    roles: list[RoleReview] = field(default_factory=list)
+    #: Requirements evidenced inside a real role, out of those a role could show.
+    shown_in_work: int = 0
+    checkable: int = 0
+    verdict: str = ""
+
+    @property
+    def core_roles(self) -> list[RoleReview]:
+        return [r for r in self.roles if r.relevance == "core"]
+
+    @property
+    def all_internships(self) -> bool:
+        return bool(self.roles) and all(r.is_internship for r in self.roles)
+
+
+def _has_outcomes(role: Experience) -> bool:
+    return any(_OUTCOME.search(line) for line in role.highlights)
+
+
+def _role_text(role: Experience) -> str:
+    return " \n".join([f"{role.title} {role.company}", *role.highlights])
+
+
+def _title_signal(role: Experience, job: JobProfile) -> bool:
+    """Does the role's title alone place it in the same line of work?
+
+    The fallback for a CV that lists a job and says nothing about it. Matching on
+    the title is weak evidence, which is why it only ever produces "unclear".
+    """
+    words = {w for w in re.findall(r"[a-z]{4,}", role.title.lower())}
+    if not words:
+        return False
+    job_words = {w for w in re.findall(r"[a-z]{4,}", job.title.lower())}
+    return bool(words & job_words)
+
+
+def review_experience(profile: CandidateProfile, job: JobProfile) -> ExperienceReview:
+    """Read the work history against this vacancy, role by role."""
+    review = ExperienceReview(
+        has_experience=bool(profile.experience),
+        total_years=profile.total_years_experience,
+    )
+    if not profile.experience:
+        review.verdict = (
+            "No professional experience on this CV. Everything this candidate "
+            "shows rests on projects, education and a skills list."
+        )
+        return review
+
+    # Only requirements a single role could actually demonstrate. A degree cannot
+    # be shown by a role, so counting it here would understate every candidate -
+    # and neither can "3 years of experience", which is a fact about the career as
+    # a whole. Leaving it in made a role report that it "shows 3 years of
+    # professional experience", which is not a thing a role shows.
+    checkable = [
+        r for r in job.requirements
+        if r.kind == "skill"
+        or (r.kind == "experience" and not _YEARS.search(r.text.lower()))
+    ]
+    review.checkable = len(checkable)
+
+    shown: set[str] = set()
+    for role in profile.experience:
+        entry = RoleReview(
+            title=role.title,
+            company=role.company,
+            years=role.years,
+            is_internship=role.is_internship,
+            has_outcomes=_has_outcomes(role),
+        )
+        text = _role_text(role)
+
+        for req in checkable:
+            terms = _requirement_terms(req.text) + list(req.any_of) + list(req.keywords)
+            concept = concept_for(req.text)
+            if (concept and concept_evidence(concept, text)) or _skill_hit(text, terms):
+                entry.demonstrates.append(req.text)
+                shown.add(req.text)
+
+        described = bool(role.highlights)
+        count = len(entry.demonstrates)
+        if count >= 2:
+            entry.relevance = "core"
+        elif count == 1:
+            entry.relevance = "adjacent"
+        elif not described:
+            entry.relevance = "unclear"
+        elif _title_signal(role, job):
+            entry.relevance = "unclear"
+        else:
+            entry.relevance = "unrelated"
+
+        entry.note = _role_note(entry, job)
+        review.roles.append(entry)
+
+    review.shown_in_work = len(shown)
+    # Never more than the total the rest of the system works from. Role durations
+    # and the computed total can disagree - overlapping dates, a role the parser
+    # dated but the total did not - and "3 of 2 years are relevant" is nonsense
+    # printed next to a person's name.
+    review.relevant_years = round(
+        min(sum(r.counted_years for r in review.roles), review.total_years), 1
+    )
+    review.verdict = _experience_verdict(review, job)
+    return review
+
+
+def _role_note(entry: RoleReview, job: JobProfile) -> str:
+    """One line a recruiter can read instead of the whole role."""
+    kind = "internship" if entry.is_internship else "role"
+    if entry.relevance == "core":
+        shows = ", ".join(entry.demonstrates[:3])
+        outcome = (
+            " with measurable results"
+            if entry.has_outcomes
+            else " but the bullets describe duties rather than results"
+        )
+        return f"Directly relevant {kind}: shows {shows}{outcome}."
+    if entry.relevance == "adjacent":
+        return (
+            f"Partly relevant {kind}: shows {entry.demonstrates[0]}, but nothing "
+            f"else this job asks for."
+        )
+    if entry.relevance == "unclear":
+        return (
+            f"The CV names this {kind} but does not describe it, so whether it is "
+            f"relevant cannot be read from the page. Counted in full rather than "
+            f"guessed at."
+        )
+    return (
+        f"Nothing in this {kind} evidences what the {job.title} advert asks for. "
+        f"It still counts as work; it does not count as relevant work."
+    )
+
+
+def _experience_verdict(review: ExperienceReview, job: JobProfile) -> str:
+    """The sentence shown next to the candidate."""
+    total, relevant = review.total_years, review.relevant_years
+    core = len(review.core_roles)
+
+    # A CV that lists jobs without describing them cannot be judged either way,
+    # and saying "none of it is relevant" about a document that says nothing is a
+    # claim the page does not support.
+    undescribed = [r for r in review.roles if r.relevance == "unclear"]
+    if len(undescribed) == len(review.roles):
+        return (
+            f"{total:g} years across {len(review.roles)} role"
+            f"{'s' if len(review.roles) != 1 else ''}, but the CV does not describe "
+            f"what was done in any of them, so whether the experience fits this job "
+            f"cannot be read from the page. Counted in full rather than guessed at - "
+            f"worth asking about."
+        )
+
+    if review.checkable and not review.shown_in_work:
+        return (
+            f"{total:g} years of experience, but not one of the "
+            f"{review.checkable} things this advert asks for is evidenced inside "
+            f"a role. Whatever matched was found elsewhere on the CV."
+        )
+
+    one = abs(total - 1) < 0.05
+    years, verb = ("year", "is") if one else ("years", "are")
+    if relevant >= total - 0.05:
+        head = (
+            f"The single year of experience is in work relevant to this job"
+            if one
+            else f"All {total:g} years are in work relevant to this job"
+        )
+    elif relevant <= 0:
+        head = f"{total:g} {years} of experience, none of it relevant to this job"
+    else:
+        head = f"{relevant:g} of {total:g} {years} {verb} in work relevant to this job"
+
+    detail = (
+        f"{review.shown_in_work} of {review.checkable} checkable requirements are "
+        f"demonstrated inside a real role"
+        if review.checkable
+        else "the advert lists nothing a role could demonstrate"
+    )
+    if review.all_internships:
+        detail += ", all of it internship work"
+    elif core:
+        detail += f", across {core} relevant role{'s' if core != 1 else ''}"
+    if undescribed:
+        detail += (
+            f". {len(undescribed)} further role"
+            f"{'s are' if len(undescribed) != 1 else ' is'} listed without any "
+            f"description, so {'they' if len(undescribed) != 1 else 'it'} could not "
+            f"be judged"
+        )
+    return f"{head}; {detail}."
+
+
 @dataclass
 class MatchResult:
     """Everything stage 5 needs, and everything HR is shown."""
@@ -133,6 +383,7 @@ class MatchResult:
     job_title: str
     source_name: str = ""
     results: list[RequirementResult] = field(default_factory=list)
+    experience: ExperienceReview = field(default_factory=ExperienceReview)
 
     @property
     def must_results(self) -> list[RequirementResult]:
@@ -337,7 +588,10 @@ def _part(req: Requirement, text: str) -> Requirement:
     return req.model_copy(update={"text": text, "any_of": [], "all_of": []})
 
 
-def _check_skill(req: Requirement, profile: CandidateProfile) -> RequirementResult:
+def _check_skill(
+    req: Requirement, profile: CandidateProfile,
+    review: ExperienceReview | None = None,
+) -> RequirementResult:
     """Resolve the requirement's logic, then check what it actually asks for.
 
     "Docker or Kubernetes" is one requirement, not two. Scoring it as two is how a
@@ -590,50 +844,93 @@ def _related_support(
     return None
 
 
-def _check_experience(req: Requirement, profile: CandidateProfile) -> RequirementResult:
+def _check_experience(
+    req: Requirement, profile: CandidateProfile,
+    review: ExperienceReview | None = None,
+) -> RequirementResult:
+    """Years, counted as the ones that evidence this job rather than all of them.
+
+    "5+ years of data engineering" is not satisfied by five years of anything.
+    Comparing against the raw total is why a career changer with a decade in
+    another field reads as comfortably qualified, and why the recruiter stops
+    trusting the number.
+    """
     asked = _YEARS.search(req.text.lower())
-    if asked:
-        needed = float(asked.group(1))
-        held = profile.total_years_experience
-        evidence = f"{held:g} years of professional experience"
-        if held >= needed:
-            return RequirementResult(
-                req.text, req.kind, req.importance, "met", evidence,
-                match_kind="derived", confidence=80,
-                strength="strong", source="experience",
-                explanation=(
-                    f"Dated roles on the CV total {held:g} years, meeting the "
-                    f"{needed:g} the advert asks for."
-                ),
-            )
-        # A year short is a near miss a person should look at. Three years short
-        # of a senior role is not - scoring those the same is how a junior ends up
-        # ranked beside somebody with a decade.
-        if held >= needed - 1:
-            return RequirementResult(
-                req.text, req.kind, req.importance, "partial",
-                f"{evidence}, {needed:g} asked for", match_kind="derived",
-                confidence=75, strength="partial", source="experience",
-                explanation=(
-                    f"{held:g} years against the {needed:g} asked for - close "
-                    f"enough that a person should decide."
-                ),
-            )
+    if not asked:
+        # Domain experience - "reporting in retail" - is a skill lookup in disguise.
+        return _check_skill(req, profile, review)
+
+    needed = float(asked.group(1))
+    total = profile.total_years_experience
+    relevant = review.relevant_years if review else total
+    unread = bool(review) and any(r.relevance == "unclear" for r in review.roles)
+
+    if relevant >= needed:
+        evidence = (
+            f"{relevant:g} years of relevant professional experience"
+            if relevant < total
+            else f"{total:g} years of professional experience"
+        )
         return RequirementResult(
-            req.text, req.kind, req.importance, "not_met",
-            f"{evidence}, {needed:g} asked for", match_kind="absent", confidence=85,
-            strength="none", source="experience",
+            req.text, req.kind, req.importance, "met", evidence,
+            match_kind="derived", confidence=72 if unread else 82,
+            strength="strong", source="experience",
             explanation=(
-                f"{held:g} years of dated experience against the {needed:g} "
-                f"required."
+                f"{relevant:g} of {total:g} dated years are in work that evidences "
+                f"this job, against the {needed:g} asked for."
+                if relevant < total
+                else f"Dated roles on the CV total {total:g} years, meeting the "
+                     f"{needed:g} the advert asks for."
             ),
         )
 
-    # Domain experience: "reporting in retail or public sector".
-    return _check_skill(req, profile)
+    # A year short is a near miss a person should look at. Three years short of a
+    # senior role is not, and scoring them alike ranks a junior beside somebody
+    # with a decade.
+    if relevant >= needed - 1:
+        return RequirementResult(
+            req.text, req.kind, req.importance, "partial",
+            f"{relevant:g} relevant years, {needed:g} asked for",
+            match_kind="derived", confidence=75,
+            strength="partial", source="experience",
+            explanation=(
+                f"{relevant:g} years of relevant work against the {needed:g} asked "
+                f"for - close enough that a person should decide."
+            ),
+        )
+
+    # Plenty of experience, but not in this. A real judgement call, not a
+    # rejection: transferable careers are exactly what a human should see.
+    if total >= needed:
+        return RequirementResult(
+            req.text, req.kind, req.importance, "partial",
+            f"{total:g} years, {relevant:g} of them relevant",
+            match_kind="derived", confidence=60,
+            strength="partial", source="experience",
+            explanation=(
+                f"{total:g} years of professional experience, which clears the "
+                f"{needed:g} the advert asks for, but only {relevant:g} of it "
+                f"evidences this job. Whether that experience transfers is a "
+                f"human decision."
+            ),
+        )
+
+    return RequirementResult(
+        req.text, req.kind, req.importance, "not_met",
+        f"{total:g} years of professional experience, {needed:g} asked for",
+        match_kind="absent", confidence=85,
+        strength="none", source="experience",
+        explanation=(
+            f"{total:g} years of dated experience against the {needed:g} required"
+            + (f", and only {relevant:g} of it relevant." if relevant < total else ".")
+        ),
+    )
 
 
-def _check_education(req: Requirement, profile: CandidateProfile) -> RequirementResult:
+def _check_education(
+    req: Requirement, profile: CandidateProfile,
+    review: ExperienceReview | None = None,
+) -> RequirementResult:
     text = req.text.lower()
     wanted_rank = 3 if "bachelor" in text or "degree" in text else 0
     for level, rank in DEGREE_RANK.items():
@@ -730,7 +1027,10 @@ def _check_education(req: Requirement, profile: CandidateProfile) -> Requirement
     )
 
 
-def _check_language(req: Requirement, profile: CandidateProfile) -> RequirementResult:
+def _check_language(
+    req: Requirement, profile: CandidateProfile,
+    review: ExperienceReview | None = None,
+) -> RequirementResult:
     spoken = " ".join(profile.languages).lower()
     for language in ("english", "arabic", "french", "german", "spanish"):
         if language in req.text.lower():
@@ -785,7 +1085,10 @@ _CERT_NOISE = {
 }
 
 
-def _check_certification(req: Requirement, profile: CandidateProfile) -> RequirementResult:
+def _check_certification(
+    req: Requirement, profile: CandidateProfile,
+    review: ExperienceReview | None = None,
+) -> RequirementResult:
     """Match on the credential's identifying words, not the whole phrase.
 
     "PL-300 certification" must match a CV listing "Microsoft PL-300 Power BI Data
@@ -845,12 +1148,14 @@ def match(
     profile: CandidateProfile, job: JobProfile, source_name: str = ""
 ) -> MatchResult:
     """Check one candidate against one vacancy. Pure computation, no network."""
+    review = review_experience(profile, job)
     result = MatchResult(
-        candidate=profile, job_title=job.title, source_name=source_name
+        candidate=profile, job_title=job.title, source_name=source_name,
+        experience=review,
     )
     for req in job.requirements:
         check = _CHECKS.get(req.kind, _check_skill)
-        result.results.append(check(req, profile))
+        result.results.append(check(req, profile, review))
     return result
 
 

@@ -2,8 +2,11 @@
 
 import { useState } from "react";
 import {
+  RELEVANCE_TONE,
+  RELEVANCE_WORD,
   STATUS_MARK,
   STATUS_WORD,
+  type ExperienceReview,
   type MatchResponse,
   type Ranked,
   type RequirementResult,
@@ -31,6 +34,46 @@ const STRENGTH_WORD: Record<string, string> = {
   partial: "Partial",
   none: "",
 };
+
+function ExperienceBlock({ review }: { review: ExperienceReview }) {
+  return (
+    <div className="mb-3">
+      <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted">
+        Experience
+      </p>
+      <p className="mb-2 text-sm">{review.verdict}</p>
+
+      {review.roles.length > 0 && (
+        <ul className="space-y-1.5 text-sm">
+          {review.roles.map((role, index) => (
+            <li key={`${role.title}-${index}`}>
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <span className="font-medium">
+                  {role.title}
+                  {role.company && (
+                    <span className="font-normal text-muted"> · {role.company}</span>
+                  )}
+                </span>
+                {role.years > 0 && (
+                  <span className="text-xs tabular-nums text-muted">
+                    {role.years}&nbsp;yr{role.years === 1 ? "" : "s"}
+                  </span>
+                )}
+                {role.is_internship && (
+                  <span className="chip raised text-muted">Internship</span>
+                )}
+                <span className={`chip ${RELEVANCE_TONE[role.relevance]}`}>
+                  {RELEVANCE_WORD[role.relevance]}
+                </span>
+              </div>
+              <p className="text-xs text-muted">{role.note}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 function RequirementList({
   label,
@@ -174,6 +217,8 @@ function Row({ entry, fileUrl }: { entry: Ranked; fileUrl?: string }) {
               </span>
             </span>
           </div>
+
+          <ExperienceBlock review={entry.experience} />
 
           <RequirementList
             label="Required"
