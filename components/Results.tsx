@@ -6,6 +6,7 @@ import {
   STATUS_WORD,
   type MatchResponse,
   type Ranked,
+  type RequirementResult,
 } from "@/lib/api";
 import { Note, Score, Stat } from "./Shell";
 import { TemplateBlock } from "./TemplatePanel";
@@ -16,6 +17,76 @@ const TIER_CHIP: Record<string, string> = {
   not_a_match: "raised text-muted",
   not_a_cv: "raised text-muted",
 };
+
+const STRENGTH_TONE: Record<string, string> = {
+  strong: "bg-good-wash text-good",
+  valid: "bg-good-wash text-good",
+  partial: "bg-warn-wash text-warn",
+  none: "raised text-muted",
+};
+
+const STRENGTH_WORD: Record<string, string> = {
+  strong: "Demonstrated",
+  valid: "Stated",
+  partial: "Partial",
+  none: "",
+};
+
+function RequirementList({
+  label,
+  results,
+}: {
+  label: string;
+  results: RequirementResult[];
+}) {
+  if (results.length === 0) return null;
+
+  return (
+    <div className="mb-3">
+      <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted">
+        {label}
+      </p>
+      <ul className="space-y-2 text-sm">
+        {results.map((result, index) => (
+          <li key={`${result.requirement}-${index}`}>
+            <div className="flex flex-wrap items-baseline gap-x-2">
+              <span
+                className={`w-4 shrink-0 text-center ${
+                  result.status === "met"
+                    ? "text-good"
+                    : result.status === "not_met"
+                      ? "text-muted"
+                      : "text-warn"
+                }`}
+              >
+                {STATUS_MARK[result.status]}
+              </span>
+              <span className="font-medium">{result.requirement}</span>
+              <span className="text-xs text-muted">
+                {STATUS_WORD[result.status]}
+              </span>
+              {STRENGTH_WORD[result.strength] && (
+                <span
+                  className={`chip ${STRENGTH_TONE[result.strength]}`}
+                  title={`Evidence found in: ${result.source}`}
+                >
+                  {STRENGTH_WORD[result.strength]} · {result.source}
+                </span>
+              )}
+            </div>
+
+            {result.evidence && result.evidence !== "None found" && (
+              <p className="ml-6 text-xs italic text-muted">{result.evidence}</p>
+            )}
+            {result.explanation && (
+              <p className="ml-6 text-xs text-muted">{result.explanation}</p>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 function Row({ entry }: { entry: Ranked }) {
   const [open, setOpen] = useState(entry.tier === "shortlist");
@@ -73,39 +144,33 @@ function Row({ entry }: { entry: Ranked }) {
         <div className="border-t raised px-4 py-3">
           <p className="mb-3 text-sm">{entry.reason}</p>
 
-          <ul className="space-y-1.5 text-sm">
-            {entry.requirements.map((result, index) => (
-              <li
-                key={`${result.requirement}-${index}`}
-                className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5"
-              >
-                <span
-                  className={`w-4 shrink-0 text-center ${
-                    result.status === "met"
-                      ? "text-good"
-                      : result.status === "not_met"
-                        ? "text-muted"
-                        : "text-warn"
-                  }`}
-                >
-                  {STATUS_MARK[result.status]}
-                </span>
-                <span
-                  className={
-                    result.importance === "must_have" ? "font-medium" : "text-muted"
-                  }
-                >
-                  {result.requirement}
-                </span>
-                <span className="text-xs text-muted">{STATUS_WORD[result.status]}</span>
-                {result.evidence && (
-                  <span className="min-w-0 flex-1 truncate text-xs italic text-muted">
-                    {result.evidence}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
+          <div className="mb-3 flex flex-wrap gap-4 text-sm">
+            <span>
+              <span className="text-muted">Required requirements match </span>
+              <span className="font-medium tabular-nums">
+                {entry.required_percent}%
+              </span>
+            </span>
+            <span>
+              <span className="text-muted">Preferred requirements match </span>
+              <span className="font-medium tabular-nums">
+                {entry.preferred_percent}%
+              </span>
+            </span>
+          </div>
+
+          <RequirementList
+            label="Required"
+            results={entry.requirements.filter(
+              (r) => r.importance === "must_have",
+            )}
+          />
+          <RequirementList
+            label="Preferred"
+            results={entry.requirements.filter(
+              (r) => r.importance !== "must_have",
+            )}
+          />
 
           {entry.template && <TemplateBlock report={entry.template} />}
 

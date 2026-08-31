@@ -43,6 +43,15 @@ _ACTION_VERBS = (
 )
 
 
+#: Where a priority skill actually appears on the CV. Wording matters here: a
+#: skill written in the Technical Skills section is on the CV, and reporting it as
+#: "absent" tells the candidate to add something they already have while telling
+#: the recruiter the CV is thinner than it is. Both readers are misled by one word.
+PLACEMENT_DEMONSTRATED = "Demonstrated in experience or projects"
+PLACEMENT_LISTED = "Present in Skills, limited supporting evidence"
+PLACEMENT_MISSING = "Not mentioned anywhere in the CV"
+
+
 @dataclass
 class SectionFinding:
     key: str
@@ -75,6 +84,7 @@ class TemplateReport:
     ideal_order: list[str] = field(default_factory=list)
     candidate_order: list[str] = field(default_factory=list)
     #: Where each priority skill is evidenced: skills list, or actual work.
+    #: skill -> one of the three PLACEMENT_ labels below.
     skill_placement: dict[str, str] = field(default_factory=dict)
 
     @property
@@ -370,11 +380,11 @@ def evaluate(
     evidence = profile.evidence_text()
     for skill in blueprint.priority_skills:
         if mentions(evidence, skill):
-            placement[skill] = "shown in work"
+            placement[skill] = PLACEMENT_DEMONSTRATED
         elif any(mentions(s, skill) for s in profile.skills):
-            placement[skill] = "skills list only"
+            placement[skill] = PLACEMENT_LISTED
         else:
-            placement[skill] = "absent"
+            placement[skill] = PLACEMENT_MISSING
 
     report = TemplateReport(
         job_title=blueprint.job_title,
@@ -464,21 +474,23 @@ def _recommendations(
 
     # A skill the job requires that is only claimed, never shown. This is the most
     # actionable thing the system can say: the candidate may well have it.
-    listed_only = [s for s, where in placement.items() if where == "skills list only"]
+    listed_only = [s for s, where in placement.items() if where == PLACEMENT_LISTED]
     for skill in listed_only[:3]:
         out.append(Recommendation(
             "high",
-            f"'{skill}' appears in your skills list but nowhere in your experience "
-            f"or projects. If you have used it, say where and what you built with "
-            f"it - a skill shown in a role counts for far more than one listed.",
+            f"You list '{skill}' under skills - demonstrate it. Add a bullet to a "
+            f"role or project saying what you built with it and what it produced. "
+            f"Do not remove it and do not restate it; a skill shown in use counts "
+            f"for far more than the same skill named in a list.",
         ))
 
-    absent = [s for s, where in placement.items() if where == "absent"]
+    absent = [s for s, where in placement.items() if where == PLACEMENT_MISSING]
     for skill in absent[:2]:
         out.append(Recommendation(
             "high",
-            f"The job asks for '{skill}' and the CV does not mention it. If you have "
-            f"used it, add it to your skills and describe where you used it.",
+            f"The job asks for '{skill}' and it appears nowhere on the CV - not in "
+            f"the skills section, not in a role, not in a project. If you have used "
+            f"it, add it and say where. If you have not, this is a real gap.",
         ))
 
     summary = next((f for f in findings if f.key == "summary"), None)
@@ -515,7 +527,7 @@ def _recommendations(
         ))
 
     if total_bullets >= 4 and focus < 0.34:
-        shown = [s for s, where in placement.items() if where == "shown in work"]
+        shown = [s for s, where in placement.items() if where == PLACEMENT_DEMONSTRATED]
         out.append(Recommendation(
             "high" if focus < 0.2 else "medium",
             f"Only {relevant} of {total_bullets} experience bullets touch what this "

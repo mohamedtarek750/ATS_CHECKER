@@ -232,3 +232,177 @@ def implied_by(skill: str) -> list[str]:
     """Skills that would prove `skill` without naming it."""
     target = canonical(skill)
     return [source for source, implied in IMPLIES.items() if target in implied]
+
+
+# --------------------------------------------------------------------------
+# Concepts: broad requirements proven by specific work
+# --------------------------------------------------------------------------
+#: An advert asks for "knowledge of CNNs"; a CV says "DenseNet169, ResNet50,
+#: MobileNetV2". Those ARE CNNs - the candidate has demonstrated the requirement
+#: more concretely than the word would have. Matching the literal token fails
+#: exactly the people who described their work properly.
+#:
+#: Each entry is: the concept, and the specific things that evidence it. Members
+#: prove the concept; the concept does not prove the members. Someone who wrote
+#: "machine learning" has not thereby shown XGBoost.
+CONCEPTS: dict[str, tuple[str, ...]] = {
+    "CNN": (
+        "cnn", "convolutional neural network", "convnet",
+        "densenet", "resnet", "mobilenet", "inception", "inceptionv3",
+        "vgg", "vgg16", "efficientnet", "alexnet", "lenet", "unet", "u-net",
+        "xception", "squeezenet",
+    ),
+    "Machine Learning Algorithms": (
+        "random forest", "xgboost", "lightgbm", "catboost", "gradient boosting",
+        "decision tree", "svm", "support vector", "knn", "k-nearest",
+        "logistic regression", "linear regression", "naive bayes", "k-means",
+        "clustering", "ensemble", "adaboost",
+    ),
+    "Machine Learning": (
+        "machine learning", "supervised learning", "unsupervised learning",
+        "scikit-learn", "sklearn", "predictive model", "classification model",
+        "regression model", "model training",
+    ),
+    "Deep Learning": (
+        "deep learning", "neural network", "tensorflow", "keras", "pytorch",
+        "transfer learning", "cnn", "rnn", "lstm", "gru", "transformer",
+        "fine-tuning", "fine tuning",
+    ),
+    "Computer Vision": (
+        "computer vision", "opencv", "image classification", "object detection",
+        "image segmentation", "yolo", "image processing", "face detection",
+        "ocr", "cnn", "image recognition",
+    ),
+    "NLP": (
+        "nlp", "natural language processing", "text classification",
+        "sentiment analysis", "named entity", "tokenization", "word2vec",
+        "bert", "gpt", "transformer", "spacy", "nltk", "text mining",
+        "topic modelling", "topic modeling",
+    ),
+    "Data Preprocessing": (
+        "data preprocessing", "data cleaning", "data cleansing",
+        "data transformation", "normalization", "normalisation",
+        "standardization", "standardisation", "missing values", "imputation",
+        "feature scaling", "outlier", "data wrangling", "feature engineering",
+        "one-hot", "encoding",
+    ),
+    "Model Evaluation": (
+        "model evaluation", "accuracy", "precision", "recall", "f1", "f1-score",
+        "roc", "auc", "roc-auc", "rmse", "mae", "mse", "confusion matrix",
+        "cross-validation", "cross validation", "r2", "r-squared",
+    ),
+    "Data Visualisation": (
+        "data visualisation", "data visualization", "matplotlib", "seaborn",
+        "plotly", "power bi", "tableau", "dashboard", "charts",
+    ),
+    "Statistics": (
+        "statistics", "statistical", "hypothesis testing", "a/b test",
+        "ab testing", "regression analysis", "probability", "distribution",
+        "correlation", "anova", "p-value",
+    ),
+    "MLOps": (
+        "mlops", "mlflow", "model monitoring", "model registry", "kubeflow",
+        "model deployment pipeline", "feature store", "model versioning",
+        "sagemaker", "vertex ai",
+    ),
+    "CI/CD": (
+        "ci/cd", "cicd", "continuous integration", "continuous deployment",
+        "github actions", "jenkins", "gitlab ci", "azure devops", "circleci",
+    ),
+    "Cloud": (
+        "aws", "azure", "gcp", "google cloud", "amazon web services",
+        "cloud platform", "ec2", "s3", "lambda", "databricks",
+    ),
+    "Containerisation": (
+        "docker", "kubernetes", "k8s", "container", "containerised",
+        "containerized", "helm",
+    ),
+    "ETL": (
+        "etl", "elt", "data pipeline", "ingestion", "airflow", "data flow",
+        "batch processing", "data integration",
+    ),
+    "Big Data": (
+        "spark", "pyspark", "hadoop", "hive", "kafka", "distributed processing",
+        "big data", "mapreduce", "flink",
+    ),
+    "Web Development": (
+        "react", "angular", "vue", "next.js", "django", "flask", "fastapi",
+        "node.js", "express", "rest api", "html", "css",
+    ),
+    "Databases": (
+        "sql", "postgresql", "mysql", "mongodb", "oracle", "sqlite",
+        "redis", "database design", "query optimization", "query optimisation",
+    ),
+    "Version Control": ("git", "github", "gitlab", "bitbucket", "version control"),
+    "Agile": ("agile", "scrum", "kanban", "sprint", "jira"),
+}
+
+#: Lowercased concept name -> its members, for lookup by requirement text.
+_CONCEPT_LOOKUP = {name.lower(): members for name, members in CONCEPTS.items()}
+
+#: Wordings an advert uses for a concept without naming it exactly.
+_CONCEPT_ALIASES: dict[str, str] = {
+    "cnns": "CNN",
+    "convolutional neural networks": "CNN",
+    "ml algorithms": "Machine Learning Algorithms",
+    "machine learning algorithm": "Machine Learning Algorithms",
+    "ml": "Machine Learning",
+    "dl": "Deep Learning",
+    "cv": "Computer Vision",
+    "natural language processing": "NLP",
+    "preprocessing": "Data Preprocessing",
+    "data pre-processing": "Data Preprocessing",
+    "evaluation metrics": "Model Evaluation",
+    "model evaluation metrics": "Model Evaluation",
+    "model metrics": "Model Evaluation",
+    "data viz": "Data Visualisation",
+    "visualisation": "Data Visualisation",
+    "visualization": "Data Visualisation",
+    "cloud platforms": "Cloud",
+    "cloud services": "Cloud",
+    "containerization": "Containerisation",
+    "continuous integration": "CI/CD",
+    "big data technologies": "Big Data",
+    "relational databases": "Databases",
+    "web frameworks": "Web Development",
+}
+
+
+def concept_for(requirement: str) -> str | None:
+    """The concept a requirement is asking about, if it is asking about one."""
+    text = requirement.strip().lower()
+    if text in _CONCEPT_LOOKUP:
+        return next(n for n in CONCEPTS if n.lower() == text)
+    if text in _CONCEPT_ALIASES:
+        return _CONCEPT_ALIASES[text]
+
+    # "Knowledge of CNNs", "Experience with machine learning algorithms".
+    for phrase, concept in _CONCEPT_ALIASES.items():
+        if re.search(rf"(?<![a-z]){re.escape(phrase)}(?![a-z])", text):
+            return concept
+    for name in CONCEPTS:
+        if re.search(rf"(?<![a-z]){re.escape(name.lower())}(?![a-z])", text):
+            return name
+    return None
+
+
+def concept_evidence(concept: str, text: str) -> list[str]:
+    """Which members of `concept` this text actually demonstrates."""
+    members = CONCEPTS.get(concept, ())
+    lowered = text.lower()
+    found: list[str] = []
+    for member in members:
+        # Architectures carry a version: DenseNet169, ResNet50, MobileNetV2.
+        # Requiring a non-digit after the name misses every one of them, which is
+        # to say it misses candidates who named their models properly. Short
+        # tokens like "f1" and "r2" keep the strict boundary so they cannot fire
+        # inside an unrelated number.
+        # ResNet50, MobileNetV2, InceptionV3 - an optional version suffix.
+        trailing = (
+            r"(?:[ _-]?v?\d+(?:\.\d+)?)?(?![a-z])"
+            if len(member) >= 4 and member[-1].isalpha()
+            else r"(?![a-z0-9])"
+        )
+        if re.search(rf"(?<![a-z0-9]){re.escape(member)}{trailing}", lowered):
+            found.append(member)
+    return found

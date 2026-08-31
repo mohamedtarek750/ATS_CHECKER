@@ -53,6 +53,9 @@ export interface RequirementResult {
   importance: Importance;
   status: Status;
   evidence: string;
+  strength: "strong" | "valid" | "partial" | "none";
+  source: string;
+  explanation: string;
 }
 
 export interface Ranked {
@@ -63,6 +66,8 @@ export interface Ranked {
   phone: string;
   years: number;
   percent: number;
+  required_percent: number;
+  preferred_percent: number;
   tier: Tier;
   tier_label: string;
   reason: string;
@@ -231,6 +236,11 @@ export const SECTION_WORD: Record<SectionStatus, string> = {
   missing: "Missing",
   not_relevant: "Not relevant",
 };
+
+// Must stay identical to the PLACEMENT_ constants in ats/stages/template_match.py.
+export const PLACEMENT_DEMONSTRATED = "Demonstrated in experience or projects";
+export const PLACEMENT_LISTED = "Present in Skills, limited supporting evidence";
+export const PLACEMENT_MISSING = "Not mentioned anywhere in the CV";
 
 export const PRIORITY_TONE: Record<string, string> = {
   high: "bg-bad-wash text-bad",

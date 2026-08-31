@@ -18,9 +18,60 @@ from typing import Literal
 
 from ..job_profile import JobProfile, Requirement
 from ..models import CandidateProfile
-from ..skills import ALIASES, canonical, category_members, implied_by, mentions
+from ..skills import (
+    ALIASES,
+    canonical,
+    category_members,
+    concept_evidence,
+    concept_for,
+    implied_by,
+    mentions,
+)
 
 Status = Literal["met", "partial", "not_met", "unclear"]
+
+#: How firmly the CV supports a requirement. Separate from status on purpose: a
+#: skill named in the skills section IS met - the candidate says they have it -
+#: but it is not the same evidence as a skill used in a shipped project, and
+#: collapsing the two either fails honest candidates or rewards padding.
+EvidenceStrength = Literal["strong", "valid", "partial", "none"]
+
+#: Where evidence was found. Searched in this order, strongest first.
+EvidenceSource = Literal[
+    "experience", "projects", "skills", "certifications", "education",
+    "summary", "none",
+]
+
+#: Sections, in the order a recruiter would weigh them.
+SOURCE_ORDER: tuple[EvidenceSource, ...] = (
+    "experience", "projects", "skills", "certifications", "education", "summary",
+)
+
+#: What each source is worth. Experience and projects show the skill in use;
+#: the rest show it asserted.
+SOURCE_STRENGTH: dict[str, EvidenceStrength] = {
+    "experience": "strong",
+    "projects": "strong",
+    "skills": "valid",
+    "certifications": "valid",
+    "education": "valid",
+    "summary": "valid",
+}
+
+#: Share of a requirement's weight each level earns.
+STRENGTH_CREDIT: dict[str, float] = {
+    "strong": 1.0, "valid": 0.8, "partial": 0.5, "none": 0.0,
+}
+
+SOURCE_LABEL = {
+    "experience": "Professional experience",
+    "projects": "Projects",
+    "skills": "Technical skills",
+    "certifications": "Certifications",
+    "education": "Education",
+    "summary": "Summary",
+    "none": "Not found",
+}
 
 DEGREE_RANK = {
     "unknown": 0, "high_school": 1, "diploma": 2,
@@ -51,6 +102,19 @@ class RequirementResult:
     match_kind: MatchKind = "absent"
     #: 0-100. Low confidence is a prompt for a human, not a quiet decision.
     confidence: int = 0
+    strength: EvidenceStrength = "none"
+    source: EvidenceSource = "none"
+    #: Why this verdict, in a sentence a recruiter or candidate can act on.
+    explanation: str = ""
+
+    @property
+    def credit(self) -> float:
+        """Share of this requirement's weight the candidate has earned."""
+        return STRENGTH_CREDIT[self.strength]
+
+    @property
+    def source_label(self) -> str:
+        return SOURCE_LABEL[self.source]
 
     @property
     def is_must(self) -> bool:
@@ -158,6 +222,30 @@ def _requirement_terms(text: str) -> list[str]:
     return list(seen)
 
 
+def section_texts(profile: CandidateProfile) -> dict[str, str]:
+    """The CV split by section, so evidence can be attributed to where it sits.
+
+    Attribution is the whole point. "Scikit-learn" in a project and the same word
+    in a skills list are both true and are not the same claim, and a matcher that
+    cannot say which one it found cannot explain itself.
+    """
+    experience_parts: list[str] = []
+    for job in profile.experience:
+        experience_parts.append(f"{job.title} {job.company}")
+        experience_parts.extend(job.highlights)
+
+    return {
+        "experience": " \n".join(experience_parts),
+        "projects": " \n".join(profile.projects),
+        "skills": " \n".join(profile.skills),
+        "certifications": " \n".join(profile.certifications),
+        "education": " \n".join(
+            f"{e.field_of_study} {e.institution}" for e in profile.education
+        ),
+        "summary": profile.summary_text,
+    }
+
+
 def _skill_hit(text: str, terms: list[str]) -> str | None:
     """The first term this text demonstrates, or None."""
     for term in terms:
@@ -166,95 +254,340 @@ def _skill_hit(text: str, terms: list[str]) -> str | None:
     return None
 
 
-def _quote(evidence_source: CandidateProfile, term: str) -> str:
-    """The line from the CV that shows this skill, so a decision can be checked."""
-    for job in evidence_source.experience:
-        for line in job.highlights:
-            if mentions(line, term):
-                return f'"{line[:110]}"'
-        if mentions(f"{job.title} {job.company}", term):
-            return f"{job.title} at {job.company}".strip(" at")
-    for project in evidence_source.projects:
-        if mentions(project, term):
-            return f'"{project[:110]}"'
-    for certificate in evidence_source.certifications:
-        if mentions(certificate, term):
-            return certificate[:110]
-    return ""
+def _quote_from(text: str, term: str, source: str) -> str:
+    """The line that carries the evidence, so a verdict can be checked."""
+    for line in text.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        # Concept members arrive with the version stripped ("densenet" for
+        # "DenseNet169"), which the alias matcher will not find. Fall back to a
+        # plain substring so the quote is the candidate's own sentence rather
+        # than the token we happened to search for.
+        if mentions(line, term) or term.lower() in line.lower():
+            if source == "skills":
+                return f"Technical Skills: {term}"
+            return f'"{line[:130]}"'
+    return f"{SOURCE_LABEL[source]}: {term}"
+
+
+def _find_in_sections(
+    sections: dict[str, str], terms: list[str]
+) -> tuple[str, str, str] | None:
+    """Search the CV in priority order. Returns (source, term, quote)."""
+    for source in SOURCE_ORDER:
+        text = sections.get(source, "")
+        if not text.strip():
+            continue
+        hit = _skill_hit(text, terms)
+        if hit:
+            return (source, hit, _quote_from(text, hit, source))
+    return None
+
+
+def _concept_in_sections(
+    sections: dict[str, str], concept: str
+) -> tuple[str, list[str], str] | None:
+    """Where a concept is evidenced, and by which specific members."""
+    for source in SOURCE_ORDER:
+        text = sections.get(source, "")
+        if not text.strip():
+            continue
+        members = concept_evidence(concept, text)
+        if members:
+            quote = _quote_from(text, members[0], source)
+            return (source, members, quote)
+    return None
+
+
+#: How many skills a CV may claim per line of work it actually describes before
+#: the list stops being a summary of the CV and starts being the whole of it.
+_CLAIMS_PER_DEMONSTRATION = 4
+
+
+def _uncorroborated(profile: CandidateProfile) -> bool:
+    """True when the skills list makes far more claims than the CV can support.
+
+    A CV that names thirty tools and describes one internship bullet has given
+    the reader one place to check thirty assertions. That is not a lie and it is
+    not scored as one - the skills still count as met, because the candidate does
+    claim them - but it cannot count the same as a CV where the work is on the
+    page. A genuine engineer's skills list is a summary of their CV; a stuffed one
+    IS the CV.
+
+    Written as a ratio rather than a threshold on either number so that a short,
+    honest CV is not caught: three skills and one project passes, thirty skills
+    and one project does not.
+    """
+    demonstrations = sum(len(job.highlights) for job in profile.experience)
+    demonstrations += len(profile.projects)
+    return len(profile.skills) > _CLAIMS_PER_DEMONSTRATION * max(demonstrations, 1)
+
+
+def _strength_for(source: str, profile: CandidateProfile) -> EvidenceStrength:
+    """How firmly this source supports a claim, given the rest of the CV."""
+    declared = SOURCE_STRENGTH[source]
+    if declared == "valid" and source == "skills" and _uncorroborated(profile):
+        return "partial"
+    return declared
+
+
+def _part(req: Requirement, text: str) -> Requirement:
+    """One alternative or component of a compound requirement, on its own."""
+    return req.model_copy(update={"text": text, "any_of": [], "all_of": []})
 
 
 def _check_skill(req: Requirement, profile: CandidateProfile) -> RequirementResult:
-    """Prefer what the CV proves over what it claims.
+    """Resolve the requirement's logic, then check what it actually asks for.
 
-    A skill used in a job, project or certification is evidence. The same word in
-    a skills list is a claim, and is reported as such: "claimed" with partial
-    status rather than a clean match. Without that distinction a wall of thirty
-    keywords scores like a decade of work, which is the single easiest way to game
-    an ATS.
+    "Docker or Kubernetes" is one requirement, not two. Scoring it as two is how a
+    candidate who runs everything on Kubernetes ends up marked 50% on a line they
+    fully satisfy - which is the single most common way an ATS rejects someone the
+    employer wanted to interview.
     """
-    terms = _requirement_terms(req.text)
-    evidence = profile.evidence_text()
+    if len(req.all_of) > 1:
+        return _combine_all(req, [
+            _check_atom(_part(req, text), profile) for text in req.all_of
+        ])
+    if len(req.any_of) > 1:
+        return _combine_any(req, [
+            _check_atom(_part(req, text), profile) for text in req.any_of
+        ])
+    return _check_atom(req, profile)
 
-    # 1. Demonstrated - the strongest thing a CV can offer.
-    hit = _skill_hit(evidence, terms)
-    if hit:
-        quote = _quote(profile, hit) or "shown in the experience section"
-        canonical_name = canonical(hit)
-        equivalent = canonical_name.lower() not in req.text.lower()
+
+def _combine_any(req: Requirement, parts: list[RequirementResult]) -> RequirementResult:
+    """The advert offered a choice, so the best answer is the answer."""
+    best = max(parts, key=lambda r: (r.credit, r.confidence))
+    offered = ", ".join(p.requirement for p in parts)
+    if best.status == "not_met":
         return RequirementResult(
-            req.text, req.kind, req.importance, "met", quote,
-            match_kind="equivalent" if equivalent else "demonstrated",
-            confidence=90 if not equivalent else 82,
+            req.text, req.kind, req.importance, "not_met", "None found",
+            match_kind="absent", confidence=best.confidence,
+            strength="none", source="none",
+            explanation=(
+                "None of the alternatives the advert allows "
+                f"({', '.join(p.requirement for p in parts)}) appear on the CV."
+            ),
+        )
+    return RequirementResult(
+        req.text, req.kind, req.importance, best.status, best.evidence,
+        match_kind=best.match_kind, confidence=best.confidence,
+        strength=best.strength, source=best.source,
+        explanation=(
+            f"{best.explanation} The advert accepts any of {offered}, and "
+            f"{best.requirement} satisfies it."
+        ),
+    )
+
+
+def _combine_all(req: Requirement, parts: list[RequirementResult]) -> RequirementResult:
+    """Every component was asked for, so the weakest one is the verdict."""
+    weakest = min(parts, key=lambda r: (r.credit, r.confidence))
+    missing = [p.requirement for p in parts if p.status == "not_met"]
+    if missing:
+        # Quote the half that IS evidenced. Showing "none found" next to a
+        # requirement the candidate half-meets hides the work they did do.
+        held = max(parts, key=lambda r: (r.credit, r.confidence))
+        partial = len(missing) < len(parts)
+        return RequirementResult(
+            req.text, req.kind, req.importance,
+            "partial" if partial else "not_met",
+            held.evidence if partial else "None found",
+            match_kind="absent", confidence=weakest.confidence,
+            strength="partial" if partial else "none",
+            source=held.source if partial else "none",
+            explanation=(
+                f"This requirement needs all of "
+                f"{', '.join(p.requirement for p in parts)}; "
+                f"{', '.join(missing)} {'is' if len(missing) == 1 else 'are'} "
+                f"not evidenced."
+            ),
+        )
+    return RequirementResult(
+        req.text, req.kind, req.importance, weakest.status, weakest.evidence,
+        match_kind=weakest.match_kind, confidence=weakest.confidence,
+        strength=weakest.strength, source=weakest.source,
+        explanation=(
+            f"All parts are evidenced; the weakest is {weakest.requirement}. "
+            f"{weakest.explanation}"
+        ),
+    )
+
+
+def _check_atom(req: Requirement, profile: CandidateProfile) -> RequirementResult:
+    """Match one indivisible skill requirement, and say how firmly and from where.
+
+    A skill in the Technical Skills section counts as met - the candidate is
+    asserting it, and an ATS that calls that "not found" is simply wrong about the
+    document. It earns less than the same skill shown in a role, which is what the
+    strength field is for.
+    """
+    sections = section_texts(profile)
+    terms = _requirement_terms(req.text)
+    # The advert's own synonyms for the same thing. A CV that says "trained a
+    # ResNet" has done deep learning whether or not it uses the phrase.
+    terms.extend(k for k in req.keywords if k and k not in terms)
+
+    def result(
+        status, strength, source, evidence, explanation, kind, confidence
+    ) -> RequirementResult:
+        return RequirementResult(
+            req.text, req.kind, req.importance, status, evidence,
+            match_kind=kind, confidence=confidence, strength=strength,
+            source=source, explanation=explanation,
         )
 
-    # 2. Implied by something they demonstrably used. Writing PySpark jobs is
-    #    writing Python, and failing that candidate on the literal word would be a
-    #    false negative on somebody plainly qualified.
-    #    Run this over the requirement's skill terms, not its whole sentence:
-    #    "Python for production data work" is not a skill name, so canonicalising
-    #    the phrase finds nothing and the inference never fires.
-    for term in terms:
-        for source in implied_by(term):
-            if _skill_hit(evidence, [source]):
-                return RequirementResult(
-                    req.text, req.kind, req.importance, "met",
-                    f"{source} implies {canonical(term)} - "
-                    f"{_quote(profile, source) or 'used in a role'}",
-                    match_kind="equivalent", confidence=72,
-                )
+    # 1. The requirement names a concept, and the CV shows the concept's parts.
+    #    "Knowledge of CNNs" proven by DenseNet and ResNet is stronger evidence
+    #    than the acronym would have been, not weaker.
+    concept = concept_for(req.text)
+    if concept:
+        found = _concept_in_sections(sections, concept)
+        if found:
+            source, members, quote = found
+            named = ", ".join(m.title() for m in members[:3])
+            strength = _strength_for(source, profile)
+            exact = concept.lower() in " ".join(members)
+            return result(
+                "met", strength, source, quote,
+                f"{named} {'is' if len(members) == 1 else 'are'} "
+                f"{concept}-related work, "
+                f"{'demonstrated in ' + SOURCE_LABEL[source].lower() if strength == 'strong' else 'declared under ' + SOURCE_LABEL[source].lower()}."
+                if not exact
+                else f"{concept} appears directly in {SOURCE_LABEL[source].lower()}.",
+                "demonstrated" if strength == "strong" else "claimed",
+                90 if strength == "strong" else 76,
+            )
 
-    # 3. A comparable tool, but only where the advert invited one.
+    # 2. The named skill itself, wherever it appears - strongest section wins.
+    found = _find_in_sections(sections, terms)
+    if found:
+        source, term, quote = found
+        strength = _strength_for(source, profile)
+        canonical_name = canonical(term)
+        renamed = canonical_name.lower() not in req.text.lower()
+
+        if strength == "strong":
+            explanation = (
+                f"Demonstrated in {SOURCE_LABEL[source].lower()}"
+                + (f" as {term}" if renamed else "")
+                + "."
+            )
+        else:
+            if source == "skills" and strength == "partial":
+                explanation = (
+                    f"Listed under {SOURCE_LABEL[source].lower()}. The CV claims "
+                    f"{len(profile.skills)} skills but describes very little work, "
+                    f"so there is nothing on it that corroborates this one."
+                )
+            elif source == "skills":
+                explanation = (
+                    f"Explicitly listed under {SOURCE_LABEL[source].lower()}, though "
+                    f"not yet demonstrated in a role or project."
+                )
+            else:
+                explanation = f"Evidenced by {SOURCE_LABEL[source].lower()}."
+        return result(
+            "met", strength, source, quote, explanation,
+            "equivalent" if renamed else
+            ("demonstrated" if strength == "strong" else "claimed"),
+            90 if strength == "strong" else 78,
+        )
+
+    # 3. Implied by something the CV shows: PySpark is Python.
+    for implied_source in implied_by(req.text):
+        found = _find_in_sections(sections, [implied_source])
+        if found:
+            source, term, quote = found
+            strength = "strong" if _strength_for(source, profile) == "strong" else "partial"
+            return result(
+                "met" if strength == "strong" else "partial",
+                strength, source, quote,
+                f"{implied_source} requires {req.text}, so this is indirect but "
+                f"reliable evidence from {SOURCE_LABEL[source].lower()}.",
+                "equivalent", 74,
+            )
+
+    # 4. A comparable tool, where the advert invited one.
     for member in category_members(req.text):
-        if _skill_hit(evidence, [member]):
-            return RequirementResult(
-                req.text, req.kind, req.importance, "met",
-                f"{member} - {_quote(profile, member) or 'used in a role'}",
-                match_kind="substitute", confidence=78,
-            )
-        if any(mentions(skill, member) for skill in profile.skills):
-            return RequirementResult(
-                req.text, req.kind, req.importance, "partial",
-                f"lists {member}, a comparable tool, but does not show using it",
-                match_kind="substitute", confidence=45,
+        found = _find_in_sections(sections, [member])
+        if found:
+            source, term, quote = found
+            strength = _strength_for(source, profile)
+            return result(
+                "met", strength, source, quote,
+                f"{member} is a comparable tool and the requirement allows one; "
+                f"found in {SOURCE_LABEL[source].lower()}.",
+                "substitute", 78 if strength == "strong" else 70,
             )
 
-    # 4. Claimed in the skills list and nowhere else. True, and worth saying.
-    for term in terms:
-        for skill in profile.skills:
-            if mentions(skill, term) or mentions(term, skill):
-                thin = not profile.has_real_experience
-                return RequirementResult(
-                    req.text, req.kind, req.importance,
-                    "unclear" if thin else "partial",
-                    f"listed as a skill ({skill}), but not shown in any role or project",
-                    match_kind="claimed",
-                    confidence=25 if thin else 50,
-                )
+    # 5. Related concepts only - genuinely partial, and said so.
+    related = _related_support(req.text, sections)
+    if related:
+        source, note, quote = related
+        return result(
+            "partial", "partial", source, quote, note, "substitute", 55,
+        )
 
-    return RequirementResult(
-        req.text, req.kind, req.importance, "not_met",
-        "nothing in the CV supports this", match_kind="absent", confidence=88,
+    return result(
+        "not_met", "none", "none", "None found",
+        "No explicit or strongly related evidence was found anywhere in the CV.",
+        "absent", 88,
     )
+
+
+def _related_support(
+    requirement: str, sections: dict[str, str]
+) -> tuple[str, str, str] | None:
+    """Adjacent evidence: real, but not the thing that was asked for.
+
+    Reported as partial with the gap named, rather than as a match. Deployment via
+    Streamlit is relevant to MLOps and is not MLOps, and saying so is more useful
+    to both sides than either a tick or a cross.
+    """
+    concept = concept_for(requirement)
+    if not concept:
+        return None
+
+    #: Concepts that sit next to each other, and what is still missing.
+    neighbours: dict[str, tuple[tuple[str, ...], str]] = {
+        "MLOps": (
+            ("Containerisation", "CI/CD", "Cloud"),
+            "core MLOps tooling such as MLflow, model monitoring or pipeline "
+            "orchestration is not shown",
+        ),
+        "Deep Learning": (
+            ("Machine Learning", "Machine Learning Algorithms"),
+            "no neural-network or deep-learning framework work is shown",
+        ),
+        "Computer Vision": (
+            ("Deep Learning", "CNN"),
+            "no image-specific work such as OpenCV, detection or segmentation is shown",
+        ),
+        "Big Data": (("ETL", "Databases"), "no distributed processing is shown"),
+        "CI/CD": (("Version Control", "Containerisation"), "no pipeline automation is shown"),
+        "Cloud": (("Containerisation",), "no cloud platform is named"),
+    }
+    entry = neighbours.get(concept)
+    if not entry:
+        return None
+
+    adjacent, gap = entry
+    for source in SOURCE_ORDER:
+        text = sections.get(source, "")
+        if not text.strip():
+            continue
+        for neighbour in adjacent:
+            members = concept_evidence(neighbour, text)
+            if members:
+                quote = _quote_from(text, members[0], source)
+                return (
+                    source,
+                    f"{members[0].title()} is adjacent to {concept}, but {gap}.",
+                    quote,
+                )
+    return None
 
 
 def _check_experience(req: Requirement, profile: CandidateProfile) -> RequirementResult:
@@ -267,6 +600,11 @@ def _check_experience(req: Requirement, profile: CandidateProfile) -> Requiremen
             return RequirementResult(
                 req.text, req.kind, req.importance, "met", evidence,
                 match_kind="derived", confidence=80,
+                strength="strong", source="experience",
+                explanation=(
+                    f"Dated roles on the CV total {held:g} years, meeting the "
+                    f"{needed:g} the advert asks for."
+                ),
             )
         # A year short is a near miss a person should look at. Three years short
         # of a senior role is not - scoring those the same is how a junior ends up
@@ -275,11 +613,20 @@ def _check_experience(req: Requirement, profile: CandidateProfile) -> Requiremen
             return RequirementResult(
                 req.text, req.kind, req.importance, "partial",
                 f"{evidence}, {needed:g} asked for", match_kind="derived",
-                confidence=75,
+                confidence=75, strength="partial", source="experience",
+                explanation=(
+                    f"{held:g} years against the {needed:g} asked for - close "
+                    f"enough that a person should decide."
+                ),
             )
         return RequirementResult(
             req.text, req.kind, req.importance, "not_met",
             f"{evidence}, {needed:g} asked for", match_kind="absent", confidence=85,
+            strength="none", source="experience",
+            explanation=(
+                f"{held:g} years of dated experience against the {needed:g} "
+                f"required."
+            ),
         )
 
     # Domain experience: "reporting in retail or public sector".
@@ -298,6 +645,8 @@ def _check_education(req: Requirement, profile: CandidateProfile) -> Requirement
         return RequirementResult(
             req.text, req.kind, req.importance, "not_met",
             "no degree found on the CV", match_kind="absent", confidence=80,
+            strength="none", source="none",
+            explanation="No degree appears anywhere on the CV.",
         )
 
     degree = next(
@@ -314,6 +663,8 @@ def _check_education(req: Requirement, profile: CandidateProfile) -> Requirement
         return RequirementResult(
             req.text, req.kind, req.importance, "not_met", evidence,
             match_kind="derived", confidence=85,
+            strength="none", source="education",
+            explanation=f"The CV shows {evidence}, below the level required.",
         )
 
     # Is the field one the advert asked for? Adverts usually say "or a related
@@ -325,6 +676,8 @@ def _check_education(req: Requirement, profile: CandidateProfile) -> Requirement
             return RequirementResult(
                 req.text, req.kind, req.importance, "met", evidence,
                 match_kind="demonstrated", confidence=92,
+                strength="strong", source="education",
+                explanation=f"{evidence} - degree and field both match.",
             )
 
         # "or a related field" is in the advert for a reason. Computer and
@@ -345,21 +698,35 @@ def _check_education(req: Requirement, profile: CandidateProfile) -> Requirement
                     req.text, req.kind, req.importance, "met",
                     f"{evidence} - a related field ({shared})",
                     match_kind="equivalent", confidence=70,
+                    strength="valid", source="education",
+                    explanation=(
+                        f"{evidence}. The advert allows a related field and this "
+                        f"one shares its subject matter ({shared})."
+                    ),
                 )
             return RequirementResult(
                 req.text, req.kind, req.importance, "unclear",
                 f"{evidence} - whether this counts as related is a human call",
                 match_kind="derived", confidence=40,
+                strength="partial", source="education",
+                explanation=(
+                    f"{evidence}. The advert allows a related field; whether this "
+                    f"one qualifies is a human decision."
+                ),
             )
 
         return RequirementResult(
             req.text, req.kind, req.importance, "partial", evidence,
             match_kind="derived", confidence=55,
+            strength="partial", source="education",
+            explanation=f"{evidence}, in a different field from the one named.",
         )
 
     return RequirementResult(
         req.text, req.kind, req.importance, "met", evidence,
         match_kind="demonstrated", confidence=85,
+        strength="strong", source="education",
+        explanation=f"{evidence} meets the education requirement.",
     )
 
 
@@ -372,7 +739,10 @@ def _check_language(req: Requirement, profile: CandidateProfile) -> RequirementR
                     (l for l in profile.languages if language in l.lower()), language
                 )
                 return RequirementResult(
-                    req.text, req.kind, req.importance, "met", match
+                    req.text, req.kind, req.importance, "met", match,
+                    match_kind="demonstrated", confidence=85,
+                    strength="valid", source="skills",
+                    explanation=f"Stated on the CV as {match}.",
                 )
             # A CV written in English evidences English without a languages
             # section. Requiring one would fail people for an omission, not a gap.
@@ -380,8 +750,19 @@ def _check_language(req: Requirement, profile: CandidateProfile) -> RequirementR
                 return RequirementResult(
                     req.text, req.kind, req.importance, "met",
                     "the CV itself is written in English",
+                    match_kind="derived", confidence=78,
+                    strength="valid", source="summary",
+                    explanation=(
+                        "The CV is written in English, which evidences the "
+                        "requirement even without a languages section."
+                    ),
                 )
-            return RequirementResult(req.text, req.kind, req.importance, "not_met")
+            return RequirementResult(
+                req.text, req.kind, req.importance, "not_met", "None found",
+                match_kind="absent", confidence=80,
+                strength="none", source="none",
+                explanation=f"No evidence of {language.title()} on the CV.",
+            )
     return _check_skill(req, profile)
 
 
@@ -413,7 +794,10 @@ def _check_certification(req: Requirement, profile: CandidateProfile) -> Require
     held = " ".join(profile.certifications)
     if not held.strip():
         return RequirementResult(
-            req.text, req.kind, req.importance, "not_met", "no certifications listed"
+            req.text, req.kind, req.importance, "not_met", "None found",
+            match_kind="absent", confidence=88,
+            strength="none", source="none",
+            explanation="The CV lists no certifications.",
         )
     held_lower = held.lower()
 
@@ -434,11 +818,17 @@ def _check_certification(req: Requirement, profile: CandidateProfile) -> Require
                 held,
             )
             return RequirementResult(
-                req.text, req.kind, req.importance, "met", source
+                req.text, req.kind, req.importance, "met", source,
+                match_kind="demonstrated", confidence=88,
+                strength="valid", source="certifications",
+                explanation=f"Held: {source}.",
             )
 
     return RequirementResult(
-        req.text, req.kind, req.importance, "not_met", f"holds: {held[:60]}"
+        req.text, req.kind, req.importance, "not_met", f"Holds: {held[:80]}",
+        match_kind="absent", confidence=84,
+        strength="none", source="certifications",
+        explanation="Certifications are listed, but not the one required.",
     )
 
 

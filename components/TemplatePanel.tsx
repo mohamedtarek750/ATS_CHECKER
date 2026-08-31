@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  PLACEMENT_DEMONSTRATED,
+  PLACEMENT_LISTED,
   PRIORITY_TONE,
   SECTION_TONE,
   SECTION_WORD,
@@ -146,9 +148,9 @@ export function TemplateBlock({ report }: { report: TemplateReport }) {
             <span
               key={skill}
               className={`chip ${
-                where === "shown in work"
+                where === PLACEMENT_DEMONSTRATED
                   ? "bg-good-wash text-good"
-                  : where === "skills list only"
+                  : where === PLACEMENT_LISTED
                     ? "bg-warn-wash text-warn"
                     : "raised text-muted"
               }`}

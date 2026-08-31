@@ -180,6 +180,12 @@ class RequirementOut(BaseModel):
     importance: str
     status: str
     evidence: str
+    #: How firmly the CV supports it: strong, valid, partial, none.
+    strength: str = "none"
+    #: Which section the evidence came from, already worded for a reader.
+    source: str = "Not found"
+    #: One sentence saying why this verdict, so nobody has to guess.
+    explanation: str = ""
 
 
 class RankedOut(BaseModel):
@@ -190,6 +196,10 @@ class RankedOut(BaseModel):
     phone: str
     years: float
     percent: int
+    #: Reported separately so a strong candidate missing optional extras is not
+    #: read as a weak one. The overall percent alone cannot show that difference.
+    required_percent: int = 0
+    preferred_percent: int = 0
     tier: str
     tier_label: str
     reason: str
@@ -350,6 +360,8 @@ def match(body: MatchRequest) -> MatchResponse:
                 phone=entry.match.candidate.phone,
                 years=entry.match.candidate.total_years_experience,
                 percent=entry.percent,
+                required_percent=entry.required_percent,
+                preferred_percent=entry.preferred_percent,
                 tier=entry.tier,
                 tier_label=rank.TIER_LABEL[entry.tier],
                 reason=entry.reason,
@@ -364,6 +376,9 @@ def match(body: MatchRequest) -> MatchResponse:
                         importance=r.importance,
                         status=r.status,
                         evidence=r.evidence,
+                        strength=r.strength,
+                        source=r.source_label,
+                        explanation=r.explanation,
                     )
                     for r in entry.match.results
                 ],

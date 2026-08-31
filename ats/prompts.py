@@ -255,9 +255,30 @@ Return your verdict in the required structured format.
 # ==========================================================================
 JD_PARSE_PROMPT = """You are turning a job advertisement into a checklist an ATS can screen CVs against.
 
-Extract every requirement that can actually be checked against a CV. One
-requirement per entry - "SQL and Python with 3 years experience" is three entries,
-not one, because a candidate can meet part of it.
+Extract the requirements that can actually be checked against a CV, at the level
+a hiring manager would list them. Aim for 8-15 entries. A checklist of thirty
+hair-split lines does not screen more accurately - it just multiplies the ways a
+qualified person can be marked down, because every extra line is another chance to
+lose points for wording.
+
+Separate skills go in separate entries: "SQL and Python, 3 years" is SQL, Python,
+and 3 years of experience. But a single capability stays one entry - "building and
+maintaining ETL pipelines" is one requirement, not four.
+
+Use `any_of` when the advert offers a choice. "Docker or Kubernetes" is ONE entry
+with any_of ["Docker", "Kubernetes"]: a candidate who has Kubernetes has met it in
+full, and splitting it into two entries would score them at half.
+
+Use `all_of` only when the parts are worthless separately, which is rare.
+
+Fill `keywords` with the other words a CV might use for the same thing - tools,
+libraries, abbreviations, synonyms. "Deep learning" gets ["neural networks",
+"CNN", "TensorFlow", "PyTorch"]. This is how a CV that says "trained a ResNet"
+gets credit for a requirement that says "deep learning". Keywords widen the
+evidence that counts; they never become requirements themselves.
+
+Never list the same thing twice. If the advert mentions SQL in the responsibilities
+and again in the requirements, that is one entry.
 
 Marking must_have vs nice_to_have is the most consequential thing you do here.
   * must_have  - the advert states it as required, essential, minimum, or "you

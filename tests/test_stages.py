@@ -129,11 +129,14 @@ def test_alternatives_are_satisfied_by_either():
     )
     result = match_stage.match(candidate, make_job())
     both = next(r for r in result.results if "Power BI or Tableau" in r.requirement)
-    # Listed but never shown: honestly reported as a claim, not a clean match.
-    # This is the distinction that separates an engineer from a keyword-stuffer,
-    # and it has to hold for the ordinary case too, not only the adversarial one.
-    assert both.status == "partial"
-    assert both.match_kind == "claimed"
+    # Listed in the skills section and nowhere else. The candidate is asserting
+    # the skill, so the requirement is MET - calling it "close" tells a recruiter
+    # something the CV does not say. What separates this from a demonstrated
+    # skill is the strength, not the status, and the strength is what the score
+    # is computed from.
+    assert both.status == "met"
+    assert both.strength == "valid"
+    assert both.source == "skills"
     assert "Tableau" in both.evidence, both.evidence
 
     # Shown in a role: the same requirement, now genuinely met.
@@ -155,6 +158,10 @@ def test_alternatives_are_satisfied_by_either():
     )
     assert demonstrated.status == "met"
     assert demonstrated.match_kind == "demonstrated"
+    assert demonstrated.strength == "strong"
+    assert demonstrated.source == "experience"
+    # Both are met; the one shown in a role is worth more, and the score knows it.
+    assert demonstrated.credit > both.credit
     assert demonstrated.confidence > both.confidence
 
     # A certification naming the other side is stronger evidence than a skills
@@ -333,6 +340,140 @@ def test_ranking_a_large_pool_is_fast_and_needs_no_model():
         assert rank.summarize(ranked)["shortlist"] == 500
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+# --------------------------------------------------------------------------
+# Evidence strength, requirement logic, and what the two of them do to a score
+# --------------------------------------------------------------------------
+def test_a_listed_skill_is_met_and_a_demonstrated_one_is_worth_more():
+    """The distinction lives in the strength, never in the status.
+
+    Reporting a skill written in the Technical Skills section as "not found" or
+    "close" is simply wrong about the document, and it is the single complaint
+    candidates make about ATS software most often.
+    """
+    listed = make_candidate(skills=["SQL", "Power BI", "Excel"], certifications=[],
+                            projects=["Rebuilt the stock report"])
+    entry = next(r for r in match_stage.match(listed, make_job()).results
+                 if r.requirement == "Strong SQL")
+    assert entry.status == "met"
+    assert entry.strength == "valid"
+    assert entry.source == "skills"
+    assert "SQL" in entry.evidence
+    assert entry.explanation, "a verdict with no explanation cannot be checked"
+
+    shown = make_candidate(
+        skills=["Excel"], certifications=[],
+        experience=[Experience(title="Analyst", company="X", start="2022", end="2025",
+                               years=3, is_internship=False,
+                               highlights=["Wrote SQL window functions for the pack"])],
+    )
+    proven = next(r for r in match_stage.match(shown, make_job()).results
+                  if r.requirement == "Strong SQL")
+    assert proven.status == "met"
+    assert proven.strength == "strong"
+    assert proven.credit > entry.credit
+
+
+def test_a_missing_preferred_skill_costs_less_than_a_missing_required_one():
+    """Otherwise 'preferred' is a word with no effect on anything."""
+    job = make_job(requirements=[
+        Requirement(text="Strong SQL", kind="skill", importance="must_have"),
+        Requirement(text="Power BI", kind="skill", importance="must_have"),
+        Requirement(text="Kubernetes", kind="skill", importance="nice_to_have"),
+    ])
+    misses_optional = rank.rank([match_stage.match(
+        make_candidate(skills=["SQL", "Power BI"], certifications=[]), job
+    )])[0]
+    misses_required = rank.rank([match_stage.match(
+        make_candidate(skills=["SQL", "Kubernetes"], certifications=[]), job
+    )])[0]
+
+    # Each candidate is missing exactly one requirement. The one who is missing
+    # something the advert only preferred must come out ahead - otherwise the
+    # word "preferred" has no effect on anything and the distinction is theatre.
+    assert misses_optional.percent > misses_required.percent
+    assert misses_optional.tier == "shortlist"
+    assert misses_required.tier != "shortlist"
+
+    # And the two figures are reported apart, so a reader can see which is which.
+    assert misses_optional.required_percent > misses_optional.preferred_percent
+    assert misses_optional.preferred_percent == 0
+
+
+def test_an_either_or_requirement_is_met_in_full_by_either_side():
+    job = make_job(requirements=[
+        Requirement(text="Docker or Kubernetes", kind="skill", importance="must_have",
+                    any_of=["Docker", "Kubernetes"]),
+    ])
+    with_second = rank.rank([match_stage.match(
+        make_candidate(skills=["Kubernetes"], certifications=[]), job
+    )])[0]
+    with_first = rank.rank([match_stage.match(
+        make_candidate(skills=["Docker"], certifications=[]), job
+    )])[0]
+    with_neither = rank.rank([match_stage.match(
+        make_candidate(skills=["Excel"], certifications=[]), job
+    )])[0]
+
+    # Either alternative satisfies it, and satisfies it identically. Splitting an
+    # "or" into two requirements is what scores a Kubernetes engineer at 50% on a
+    # line they fully meet.
+    assert with_second.required_percent == with_first.required_percent
+    assert with_second.required_percent > with_neither.required_percent
+    assert with_second.match.results[0].status == "met"
+    assert "Kubernetes" in with_second.match.results[0].explanation
+    assert with_neither.match.results[0].status == "not_met"
+
+
+def test_supporting_keywords_find_the_skill_under_another_name():
+    """A CV that says 'trained a ResNet' has done deep learning."""
+    job = make_job(requirements=[
+        Requirement(text="Deep learning", kind="skill", importance="must_have",
+                    keywords=["neural network", "PyTorch", "ResNet"]),
+    ])
+    candidate = make_candidate(
+        skills=["Python"], certifications=[],
+        experience=[Experience(title="ML Engineer", company="X", start="2022",
+                               end="2025", years=3, is_internship=False,
+                               highlights=["Trained a ResNet on chest X-rays"])],
+    )
+    result = match_stage.match(candidate, job).results[0]
+    assert result.status == "met"
+    assert result.strength == "strong"
+    assert "ResNet" in result.evidence
+
+
+def test_a_skills_wall_with_no_work_behind_it_counts_for_less():
+    """Still met - the candidate does claim it - but not worth a proven skill."""
+    stuffed = make_candidate(
+        skills=["SQL", "Power BI", "Python", "Spark", "Airflow", "Kafka", "dbt",
+                "AWS", "Azure", "Docker", "Kubernetes", "Tableau", "Excel"],
+        certifications=[], experience=[], projects=[],
+    )
+    claim = next(r for r in match_stage.match(stuffed, make_job()).results
+                 if r.requirement == "Strong SQL")
+    assert claim.status == "met", "the skill is on the CV and must be reported so"
+    assert claim.strength == "partial"
+    assert "corroborates" in claim.explanation
+
+    # A short, honest CV is not caught by the same rule.
+    honest = make_candidate(skills=["SQL", "Power BI"], certifications=[],
+                            experience=[], projects=["Weekly sales dashboard"])
+    fine = next(r for r in match_stage.match(honest, make_job()).results
+                if r.requirement == "Strong SQL")
+    assert fine.strength == "valid"
+
+
+def test_the_same_requirement_listed_twice_is_scored_once():
+    job = make_job(requirements=[
+        Requirement(text="SQL", kind="skill", importance="nice_to_have"),
+        Requirement(text="Strong SQL", kind="skill", importance="must_have"),
+        Requirement(text="Power BI", kind="skill", importance="must_have"),
+    ]).deduplicate()
+    assert len(job.requirements) == 2
+    # The must-have survives, never its nice-to-have twin.
+    assert job.requirements[0].importance == "must_have"
 
 
 if __name__ == "__main__":

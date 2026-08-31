@@ -209,7 +209,7 @@ def test_section_order_is_reported_against_the_ideal():
 def test_a_skill_only_listed_is_reported_as_such():
     """Section 12: presence is not evidence, and the report must distinguish."""
     _job, _percent, report = scores(WELL_WRITTEN)
-    assert report.skill_placement["Power BI"] == "shown in work"
+    assert report.skill_placement["Power BI"] == template.PLACEMENT_DEMONSTRATED
 
     listed_only = profile_from(
         "AHMED\na@example.com\n\nEXPERIENCE\nAdmin - Shop (2019 - 2024)\n"
@@ -217,8 +217,8 @@ def test_a_skill_only_listed_is_reported_as_such():
         "Bachelor of Statistics, Cairo University, 2019\n"
     )
     second = template.evaluate(listed_only, blueprint_for(JOB))
-    assert second.skill_placement["Power BI"] == "skills list only"
-    assert second.skill_placement["Python"] == "absent"
+    assert second.skill_placement["Power BI"] == template.PLACEMENT_LISTED
+    assert second.skill_placement["Python"] == template.PLACEMENT_MISSING
 
 
 def test_a_keyword_wall_is_not_a_good_skills_section():

@@ -20,7 +20,8 @@ def from_text(text: str, settings: Settings) -> JobProfile:
     for req in profile.requirements:
         if req.kind == "skill":
             req.text = _canonicalise_requirement(req.text)
-    return profile
+            req.any_of = [_canonicalise_requirement(a) for a in req.any_of]
+    return profile.deduplicate()
 
 
 def _canonicalise_requirement(text: str) -> str:

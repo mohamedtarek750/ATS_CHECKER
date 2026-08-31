@@ -40,6 +40,32 @@ class Requirement(BaseModel):
         )
     )
     kind: RequirementKind
+    any_of: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Alternatives that each satisfy this requirement on their own, when "
+            "the advert says 'or': 'Docker or Kubernetes' is ONE requirement with "
+            "any_of ['Docker', 'Kubernetes'], not two requirements the candidate "
+            "is then marked down for half-meeting."
+        ),
+    )
+    all_of: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Parts that must ALL be present, when the advert genuinely means and: "
+            "'SQL and data modelling for reporting' where neither half is useful "
+            "alone. Use sparingly - separate skills belong in separate entries."
+        ),
+    )
+    keywords: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Other words a CV might use for the same thing: tools, libraries, "
+            "abbreviations, near-synonyms. 'Deep learning' -> ['neural network', "
+            "'CNN', 'TensorFlow', 'PyTorch']. These widen what counts as evidence; "
+            "they never add a new requirement of their own."
+        ),
+    )
     importance: Importance = Field(
         description=(
             "'must_have' only when the job description states it as required, "
@@ -49,6 +75,28 @@ class Requirement(BaseModel):
             "rejects people the employer would have wanted to see."
         )
     )
+
+
+#: Words that describe how much of a skill is wanted, not which skill it is.
+#: "Strong SQL" and "SQL" are the same requirement written twice.
+_LEVEL_WORDS = {
+    "strong", "solid", "excellent", "good", "advanced", "basic", "deep",
+    "proven", "demonstrated", "hands", "on", "hands-on", "experience", "with",
+    "of", "in", "the", "a", "an", "and", "or", "working", "knowledge",
+    "understanding", "skills", "ability", "to", "familiarity", "familiar",
+    "proficiency", "proficient", "expertise", "expert", "competent", "using",
+    "use", "practical", "extensive", "significant", "some", "very",
+}
+
+
+def _requirement_key(req: "Requirement") -> str:
+    """What this requirement is about, with the adjectives stripped off."""
+    from .skills import canonical
+
+    words = re.findall(r"[a-z0-9+#.]+", req.text.lower())
+    core = [w for w in words if w not in _LEVEL_WORDS]
+    text = " ".join(core or words)
+    return canonical(text).lower()
 
 
 class JobProfile(BaseModel):
@@ -67,6 +115,33 @@ class JobProfile(BaseModel):
     # --- bookkeeping, not filled by the model ---
     created: str = ""
     source_text: str = ""
+
+    def deduplicate(self) -> "JobProfile":
+        """Drop requirements that repeat one already on the list.
+
+        Adverts say the same thing twice - once in "Requirements" and again in
+        "What you will do" - and an extracted checklist inherits the repetition.
+        Left in, a duplicated skill is scored twice, so a candidate missing one
+        common tool loses double the weight of a candidate missing a rarer one.
+        The must-have wins over its nice-to-have twin, never the other way round.
+        """
+        kept: list[Requirement] = []
+        seen: dict[tuple[str, str], int] = {}
+        for req in self.requirements:
+            key = (req.kind, _requirement_key(req))
+            if key in seen:
+                index = seen[key]
+                # A thing asked for twice, once as essential, is essential.
+                if (
+                    req.importance == "must_have"
+                    and kept[index].importance == "nice_to_have"
+                ):
+                    kept[index] = req
+                continue
+            seen[key] = len(kept)
+            kept.append(req)
+        self.requirements = kept
+        return self
 
     @property
     def must_haves(self) -> list[Requirement]:
