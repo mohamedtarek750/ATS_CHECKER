@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { parseCV, type ParsedCV } from "@/lib/api";
 import { Note } from "./Shell";
 
@@ -38,6 +38,14 @@ export default function Uploads({
   setRows: (rows: UploadRow[]) => void;
   provider: string;
 }) {
+  // A link to each file as it sits in the browser. Built once per file rather
+  // than per render: createObjectURL in a render body mints a new URL on every
+  // keystroke elsewhere on the page and never releases any of them.
+  const poolKey = rows.map((r) => `${r.file.name}|${r.file.size}`).join(";");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const urls = useMemo(() => rows.map((r) => URL.createObjectURL(r.file)), [poolKey]);
+  useEffect(() => () => urls.forEach(URL.revokeObjectURL), [urls]);
+
   const [busy, setBusy] = useState(false);
   const [over, setOver] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
@@ -193,7 +201,15 @@ export default function Uploads({
                 <span className="w-6 shrink-0 text-right text-xs tabular-nums text-muted">
                   {index + 1}
                 </span>
-                <span className="min-w-0 basis-56 truncate">{row.file.name}</span>
+                <a
+                  href={urls[index]}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="min-w-0 basis-56 truncate underline decoration-dotted underline-offset-2 hover:text-ink"
+                  title={`Open ${row.file.name}`}
+                >
+                  {row.file.name}
+                </a>
                 <span className="min-w-0 flex-1 truncate text-muted">
                   {row.detail ?? ""}
                 </span>

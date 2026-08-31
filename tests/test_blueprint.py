@@ -250,6 +250,54 @@ def test_the_two_scores_are_never_added_together():
     assert report.band
 
 
+def test_the_panel_never_contradicts_the_requirement_list():
+    """Two answers to one question on one screen is worse than either answer.
+
+    The panel used to re-derive where a skill sat with plain text matching, so a
+    requirement written "Strong SQL" missed a skills entry reading "SQL" - and the
+    candidate was told to add a skill their CV lists, directly underneath a row
+    saying the requirement was met.
+    """
+    from ats.job_profile import JobProfile, Requirement
+    from ats.models import CandidateProfile, Education, Experience
+
+    job = JobProfile(
+        title="Data Analyst", seniority="Mid", summary="Owns reporting.",
+        min_years_experience=2,
+        requirements=[
+            Requirement(text="Strong SQL", kind="skill", importance="must_have"),
+            Requirement(text="Power BI", kind="skill", importance="must_have"),
+            Requirement(text="Docker", kind="skill", importance="nice_to_have"),
+        ],
+    )
+    candidate = CandidateProfile(
+        full_name="Mohamed Tarek", email="m@x.com", phone="", location="", links=[],
+        headline="Analyst", seniority="mid", total_years_experience=3.0,
+        education=[Education(degree="bachelor", field_of_study="Computer Science",
+                             institution="ACU", graduation_year=2023)],
+        experience=[Experience(title="Analyst", company="X", start="2023",
+                               end="present", years=3, is_internship=False,
+                               highlights=["Built revenue dashboards in Power BI."])],
+        skills=["SQL", "Power BI", "Python"], certifications=[], languages=[],
+        projects=[], summary_text="", sections_found=["experience", "skills"],
+        document_type="cv_resume", is_cv=True, ai_generated_score=0, ai_signals=[],
+    )
+
+    result = match_stage.match(candidate, job, "cv.pdf")
+    report = template.evaluate(candidate, blueprint_for(job), result)
+
+    # SQL is in the skills section, so it is present - never "not mentioned".
+    assert report.skill_placement["Strong SQL"] == template.PLACEMENT_LISTED
+    assert report.skill_placement["Power BI"] == template.PLACEMENT_DEMONSTRATED
+    assert report.skill_placement["Docker"] == template.PLACEMENT_MISSING
+
+    # And the advice must be to demonstrate it, not to add what is already there.
+    sql_advice = [r.text for r in report.recommendations if "Strong SQL" in r.text]
+    assert sql_advice, "no advice given about a skill listed but never shown"
+    assert any("demonstrate" in text.lower() for text in sql_advice)
+    assert not any("appears nowhere" in text for text in sql_advice)
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):

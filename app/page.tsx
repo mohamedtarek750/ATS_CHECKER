@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import JobStep from "@/components/JobStep";
 import Results from "@/components/Results";
 import { Note, Step } from "@/components/Shell";
@@ -30,6 +30,25 @@ export default function Page() {
 
   const ready = rows.filter((r) => r.status === "done" && r.parsed);
   const provider = server?.provider ?? "offline";
+
+  // A link back to the original document, so a recruiter can read the CV itself
+  // rather than trusting the summary of it. The file is already in the browser -
+  // an object URL points at that copy, so opening it uploads nothing and stores
+  // nothing. Keyed on name and size so it is rebuilt when the pool changes but
+  // not on every re-render while files are still being read.
+  const poolKey = ready.map((r) => `${r.file.name}|${r.file.size}`).join("\n");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const fileUrls = useMemo(() => {
+    const urls: Record<string, string> = {};
+    for (const row of ready) urls[row.parsed!.filename] = URL.createObjectURL(row.file);
+    return urls;
+  }, [poolKey]);
+
+  // Object URLs live until the document is unloaded unless they are released.
+  useEffect(
+    () => () => Object.values(fileUrls).forEach(URL.revokeObjectURL),
+    [fileUrls],
+  );
 
   async function run() {
     if (!job) return;
@@ -132,7 +151,7 @@ export default function Page() {
                 </div>
               )}
               {error && <Note tone="bad">{error}</Note>}
-              {results && <Results data={results} />}
+              {results && <Results data={results} fileUrls={fileUrls} />}
             </div>
           </Step>
         )}

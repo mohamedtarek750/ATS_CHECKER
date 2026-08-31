@@ -88,14 +88,15 @@ function RequirementList({
   );
 }
 
-function Row({ entry }: { entry: Ranked }) {
+function Row({ entry, fileUrl }: { entry: Ranked; fileUrl?: string }) {
   const [open, setOpen] = useState(entry.tier === "shortlist");
 
   return (
     <div className="card animate-rise overflow-hidden">
+      <div className="flex items-center transition hover:bg-raised">
       <button
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center gap-4 px-4 py-3 text-left transition hover:bg-raised"
+        className="flex min-w-0 flex-1 items-center gap-4 px-4 py-3 text-left"
       >
         <Score percent={entry.percent} />
 
@@ -140,6 +141,21 @@ function Row({ entry }: { entry: Ranked }) {
         </span>
       </button>
 
+      {/* Outside the button: an anchor cannot be nested inside one, and a
+          recruiter wants to open the CV without expanding the row. */}
+      {fileUrl && (
+        <a
+          href={fileUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="chip mr-3 shrink-0 raised text-muted hover:text-ink"
+          title={`Open ${entry.filename}`}
+        >
+          Open CV
+        </a>
+      )}
+      </div>
+
       {open && (
         <div className="border-t raised px-4 py-3">
           <p className="mb-3 text-sm">{entry.reason}</p>
@@ -171,6 +187,21 @@ function Row({ entry }: { entry: Ranked }) {
               (r) => r.importance !== "must_have",
             )}
           />
+
+          {fileUrl && (
+            <p className="mt-3 text-xs text-muted">
+              Read from{" "}
+              <a
+                href={fileUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline decoration-dotted underline-offset-2 hover:text-ink"
+              >
+                {entry.filename}
+              </a>
+              . Every line above is quoted from it.
+            </p>
+          )}
 
           {entry.template && <TemplateBlock report={entry.template} />}
 
@@ -205,7 +236,14 @@ function toCSV(response: MatchResponse): string {
     .join("\n");
 }
 
-export default function Results({ data }: { data: MatchResponse }) {
+export default function Results({
+  data,
+  fileUrls = {},
+}: {
+  data: MatchResponse;
+  /** filename -> a link to the document this candidate was read from. */
+  fileUrls?: Record<string, string>;
+}) {
   const [showAll, setShowAll] = useState(false);
   const counts = data.counts;
 
@@ -257,7 +295,11 @@ export default function Results({ data }: { data: MatchResponse }) {
 
       <div className="space-y-2">
         {visible.map((entry) => (
-          <Row key={entry.filename + entry.name} entry={entry} />
+          <Row
+            key={entry.filename + entry.name}
+            entry={entry}
+            fileUrl={fileUrls[entry.filename]}
+          />
         ))}
       </div>
 

@@ -342,6 +342,47 @@ _STATUS_CREDIT = {
 _WEIGHT_VALUE = {"required": 3.0, "recommended": 1.5, "optional": 0.5, "low_value": 0.2}
 
 
+def _skill_placement(
+    profile: CandidateProfile,
+    blueprint: CVBlueprint,
+    job_match: MatchResult | None,
+) -> dict[str, str]:
+    """Where each priority skill appears, agreeing with the requirement list.
+
+    The matcher already worked this out properly - aliases, implications, concept
+    evidence, section by section - so this reuses its verdict rather than asking
+    the question a second time with a cruder tool. Asking twice is how the panel
+    came to say "Strong SQL: not mentioned anywhere" directly underneath a
+    requirement row reading "met - Technical Skills: SQL". Two answers to one
+    question on one screen, and the candidate is told to add a skill they listed.
+    """
+    from_match: dict[str, str] = {}
+    if job_match is not None:
+        for result in job_match.results:
+            if result.status == "not_met":
+                from_match[result.requirement] = PLACEMENT_MISSING
+            elif result.source in {"experience", "projects"}:
+                from_match[result.requirement] = PLACEMENT_DEMONSTRATED
+            elif result.source == "none":
+                from_match[result.requirement] = PLACEMENT_MISSING
+            else:
+                from_match[result.requirement] = PLACEMENT_LISTED
+
+    placement: dict[str, str] = {}
+    evidence = profile.evidence_text()
+    for skill in blueprint.priority_skills:
+        known = from_match.get(skill)
+        if known is not None:
+            placement[skill] = known
+        elif mentions(evidence, skill):
+            placement[skill] = PLACEMENT_DEMONSTRATED
+        elif any(mentions(entry, skill) for entry in profile.skills):
+            placement[skill] = PLACEMENT_LISTED
+        else:
+            placement[skill] = PLACEMENT_MISSING
+    return placement
+
+
 def evaluate(
     profile: CandidateProfile,
     blueprint: CVBlueprint,
@@ -376,15 +417,7 @@ def evaluate(
     percent = max(0, min(100, percent))
 
     # --- where the priority skills actually appear (§12) -------------------
-    placement: dict[str, str] = {}
-    evidence = profile.evidence_text()
-    for skill in blueprint.priority_skills:
-        if mentions(evidence, skill):
-            placement[skill] = PLACEMENT_DEMONSTRATED
-        elif any(mentions(s, skill) for s in profile.skills):
-            placement[skill] = PLACEMENT_LISTED
-        else:
-            placement[skill] = PLACEMENT_MISSING
+    placement = _skill_placement(profile, blueprint, job_match)
 
     report = TemplateReport(
         job_title=blueprint.job_title,
