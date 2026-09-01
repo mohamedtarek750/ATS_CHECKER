@@ -7,6 +7,8 @@ import { Note, Score, Stat } from "@/components/Shell";
 import {
   DECISIONS,
   DECISION_TONE,
+  SignedOutError,
+  cvObjectUrl,
   listApplications,
   readPending,
   saveDecision,
@@ -31,6 +33,7 @@ export default function JobDashboard({
   const { slug } = use(params);
   const [data, setData] = useState<ApplicationsResponse | null>(null);
   const [error, setError] = useState("");
+  const [signedOut, setSignedOut] = useState(false);
   const [reading, setReading] = useState(false);
   const [showRejected, setShowRejected] = useState(false);
 
@@ -38,6 +41,7 @@ export default function JobDashboard({
     try {
       setData(await listApplications(slug));
     } catch (e) {
+      setSignedOut(e instanceof SignedOutError);
       setError(e instanceof Error ? e.message : "Could not load this vacancy.");
     }
   }, [slug]);
@@ -72,6 +76,11 @@ export default function JobDashboard({
     return (
       <Frame slug={slug}>
         <Note tone="bad">{error}</Note>
+        {signedOut && (
+          <button className="btn-primary mt-3" onClick={() => location.reload()}>
+            Sign in again
+          </button>
+        )}
       </Frame>
     );
   }
@@ -151,7 +160,27 @@ function Row({
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState(row.note);
   const [saving, setSaving] = useState(false);
+  const [opening, setOpening] = useState(false);
   const unread = row.status !== "read";
+
+  /**
+   * The CV endpoint needs the signed-in token, and a plain link cannot send
+   * one. Leaving it open instead would put a stranger's CV behind nothing but
+   * an unguessable id, so the bytes are fetched and handed to a blob URL.
+   */
+  async function openCv() {
+    setOpening(true);
+    try {
+      const url = await cvObjectUrl(row.id);
+      window.open(url, "_blank", "noopener");
+      // Released once the new tab has taken it. Revoking immediately would
+      // pull the document out from under the tab that is loading it.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "The CV could not be opened.");
+    }
+    setOpening(false);
+  }
 
   async function change(decision: DecisionValue) {
     setSaving(true);
@@ -212,15 +241,14 @@ function Row({
           </span>
         </button>
 
-        <a
-          href={row.cv_url}
-          target="_blank"
-          rel="noopener noreferrer"
+        <button
+          onClick={openCv}
+          disabled={opening}
           className="chip mr-3 shrink-0 raised text-muted hover:text-ink"
           title={`Open ${row.cv_filename}`}
         >
-          Open CV
-        </a>
+          {opening ? "Opening…" : "Open CV"}
+        </button>
       </div>
 
       {open && (
@@ -240,7 +268,7 @@ function Row({
             </Note>
           )}
 
-          <div className="mb-3 flex flex-wrap items-center gap-2">
+          <div className="mb-1.5 flex flex-wrap items-center gap-2">
             <span className="text-xs uppercase tracking-wide text-muted">
               Decision
             </span>
@@ -264,7 +292,14 @@ function Row({
               when focus happens to leave is a note that goes missing when the
               recruiter closes the tab, and they never find out it went. */}
           <div className="mb-3">
-            <textarea
+            {row.decided_by && (
+            <p className="mb-3 text-xs text-muted">
+              Last changed by {row.decided_by}
+              {row.decided_at && ` · ${row.decided_at.replace("T", " ").slice(0, 16)}`}
+            </p>
+          )}
+
+          <textarea
               className="field min-h-[4rem] text-sm"
               placeholder="Notes for the hiring team…"
               value={note}

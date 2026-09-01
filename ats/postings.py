@@ -105,6 +105,10 @@ class Application:
     # --- what a human did about it ---------------------------------------
     decision: Decision = "new"
     note: str = ""
+    #: Who last moved this person, and when. Somebody has to be answerable for
+    #: a rejection; an unattributed one is worse than none.
+    decided_by: str = ""
+    decided_at: str = ""
 
     @property
     def is_read(self) -> bool:

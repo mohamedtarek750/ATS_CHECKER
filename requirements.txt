@@ -7,6 +7,10 @@ python-multipart>=0.0.9
 
 # Optional: only needed for the provider you actually use.
 google-genai>=1.0        # ATS_PROVIDER=gemini
+
+# Verifying the Google sign-in on the dashboard. Required unless ATS_AUTH=off,
+# and the default is on - the dashboard holds applicants' CVs.
+google-auth>=2
 # anthropic>=1,<2        # ATS_PROVIDER=claude
 
 # Local tooling only - not needed on Vercel.

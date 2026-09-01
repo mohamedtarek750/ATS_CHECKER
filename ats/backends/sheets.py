@@ -68,7 +68,7 @@ APPLICATION_COLUMNS = [
     "cv_filename", "cv_ref", "cv_url",
     "status", "detail", "read_at",
     "percent", "required_percent", "preferred_percent", "tier", "reason",
-    "engine_version", "decision", "note",
+    "engine_version", "decision", "decided_by", "decided_at", "note",
 ]
 
 
@@ -331,6 +331,8 @@ class SheetsBackend:
             reason=record.get("reason", ""),
             engine_version=record.get("engine_version", ""),
             decision=record.get("decision") or "new",  # type: ignore[arg-type]
+            decided_by=record.get("decided_by", ""),
+            decided_at=record.get("decided_at", ""),
             note=record.get("note", ""),
         )
 

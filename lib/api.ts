@@ -400,6 +400,8 @@ export interface ApplicationRow {
   reason: string;
   decision: DecisionValue;
   decision_label: string;
+  decided_by: string;
+  decided_at: string;
   note: string;
   /** Scored under an older engine, so the number may not be reproducible. */
   stale: boolean;
@@ -424,13 +426,114 @@ export const DECISION_TONE: Record<string, string> = {
   rejected: "raised text-muted",
 };
 
+// --------------------------------------------------------------------------
+// Signing in
+//
+// The browser gets an ID token from Google and hands it to the API, which
+// verifies it against Google's keys and checks the address against an
+// allow-list. Nothing is shared between this app and the Python function except
+// a token Google signed, so there is no session store to keep warm.
+//
+// Held in sessionStorage rather than localStorage: it expires within the hour
+// anyway, and this way closing the tab ends the session on a shared machine,
+// which is what a recruiter looking at other people's CVs should get.
+// --------------------------------------------------------------------------
+const TOKEN_KEY = "ats.admin.token";
+
+export function adminToken(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return window.sessionStorage.getItem(TOKEN_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function setAdminToken(token: string): void {
+  try {
+    if (token) window.sessionStorage.setItem(TOKEN_KEY, token);
+    else window.sessionStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* private mode, or storage disabled: the session lasts this page load */
+  }
+}
+
+/** Raised when the API says the token is missing or expired. */
+export class SignedOutError extends Error {}
+
+/** A fetch that carries the signed-in identity. Admin routes only. */
+async function adminFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const token = adminToken();
+  const headers = new Headers(init.headers);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return fetch(url, { ...init, headers });
+}
+
+async function unwrapAdmin<T>(response: Response): Promise<T> {
+  if (response.status === 401) {
+    // The token has expired or was never any good. Drop it so the page shows
+    // the sign-in button instead of failing every call from now on.
+    setAdminToken("");
+    let message = "Sign in to open the dashboard.";
+    try {
+      const body = await response.json();
+      if (typeof body?.detail === "string") message = body.detail;
+    } catch {
+      /* keep the default */
+    }
+    throw new SignedOutError(message);
+  }
+  return unwrap<T>(response);
+}
+
+export interface AuthStatus {
+  required: boolean;
+  configured: boolean;
+  client_id: string;
+  admins: number;
+}
+
+export interface AdminUser {
+  email: string;
+  name: string;
+  picture: string;
+}
+
+export async function authStatus(): Promise<AuthStatus> {
+  return unwrap<AuthStatus>(await fetch("/api/auth/status"));
+}
+
+export async function whoAmI(): Promise<AdminUser> {
+  return unwrapAdmin<AdminUser>(await adminFetch("/api/auth/me"));
+}
+
+/**
+ * The CV itself, fetched rather than linked.
+ *
+ * A plain <a href> cannot carry an Authorization header, so linking straight at
+ * the endpoint would mean leaving it open - and it serves a stranger's CV. This
+ * pulls the bytes with the token and hands back a blob URL, the same mechanism
+ * the one-off screening page already uses for local files.
+ */
+export async function cvObjectUrl(applicationId: string): Promise<string> {
+  const response = await adminFetch(`/api/cv-file/${applicationId}`);
+  if (!response.ok) {
+    if (response.status === 401) {
+      setAdminToken("");
+      throw new SignedOutError("Sign in to open the dashboard.");
+    }
+    throw new Error("The stored CV could not be opened.");
+  }
+  return URL.createObjectURL(await response.blob());
+}
+
 export async function listPostings(): Promise<Posting[]> {
-  return unwrap<Posting[]>(await fetch("/api/postings"));
+  return unwrapAdmin<Posting[]>(await adminFetch("/api/postings"));
 }
 
 export async function createPosting(job: JobProfile): Promise<Posting> {
-  return unwrap<Posting>(
-    await fetch("/api/postings", {
+  return unwrapAdmin<Posting>(
+    await adminFetch("/api/postings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ job }),
@@ -442,8 +545,10 @@ export async function setPostingStatus(
   slug: string,
   status: "open" | "closed"
 ): Promise<Posting> {
-  return unwrap<Posting>(
-    await fetch(`/api/postings/${slug}/status?status=${status}`, { method: "POST" })
+  return unwrapAdmin<Posting>(
+    await adminFetch(`/api/postings/${slug}/status?status=${status}`, {
+      method: "POST",
+    })
   );
 }
 
@@ -467,27 +572,27 @@ export async function submitApplication(
 }
 
 export async function listApplications(slug: string): Promise<ApplicationsResponse> {
-  return unwrap<ApplicationsResponse>(
-    await fetch(`/api/postings/${slug}/applications`)
+  return unwrapAdmin<ApplicationsResponse>(
+    await adminFetch(`/api/postings/${slug}/applications`)
   );
 }
 
 export async function readPending(slug: string): Promise<ApplicationsResponse> {
-  return unwrap<ApplicationsResponse>(
-    await fetch(`/api/postings/${slug}/read`, { method: "POST" })
+  return unwrapAdmin<ApplicationsResponse>(
+    await adminFetch(`/api/postings/${slug}/read`, { method: "POST" })
   );
 }
 
 export async function applicationDetail(id: string): Promise<Ranked> {
-  return unwrap<Ranked>(await fetch(`/api/applications/${id}`));
+  return unwrapAdmin<Ranked>(await adminFetch(`/api/applications/${id}`));
 }
 
 export async function saveDecision(
   id: string,
   body: { decision?: DecisionValue; note?: string }
 ): Promise<ApplicationRow> {
-  return unwrap<ApplicationRow>(
-    await fetch(`/api/applications/${id}/decision`, {
+  return unwrapAdmin<ApplicationRow>(
+    await adminFetch(`/api/applications/${id}/decision`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),

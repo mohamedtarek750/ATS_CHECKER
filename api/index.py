@@ -19,7 +19,16 @@ import sys
 import tempfile
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Response,
+    UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -36,6 +45,7 @@ from ats.stages import template_match as template  # noqa: E402
 from ats.stages import match as match_stage  # noqa: E402
 from ats import intake, postings  # noqa: E402
 from ats.backends import get_backend  # noqa: E402
+from ats import auth  # noqa: E402
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 
@@ -549,6 +559,8 @@ class ApplicationOut(BaseModel):
     reason: str
     decision: str
     decision_label: str
+    decided_by: str
+    decided_at: str
     note: str
     #: Scored under an older engine, so the number may not be reproducible.
     stale: bool
@@ -605,6 +617,8 @@ def _application_out(row) -> ApplicationOut:
         reason=row.reason,
         decision=row.decision,
         decision_label=postings.DECISION_LABEL.get(row.decision, row.decision),
+        decided_by=row.decided_by,
+        decided_at=row.decided_at,
         note=row.note,
         stale=row.is_stale,
     )
@@ -617,8 +631,61 @@ def _require_posting(slug: str):
     return posting
 
 
+# --------------------------------------------------------------------------
+# Sign-in
+#
+# Applied to everything that can see an applicant. The public application page
+# is deliberately outside it: a candidate cannot be asked to hold an account
+# before they are allowed to apply for a job.
+# --------------------------------------------------------------------------
+class AdminOut(BaseModel):
+    email: str
+    name: str
+    picture: str
+
+
+class AuthStatusOut(BaseModel):
+    #: Whether a sign-in is demanded at all. False only when ATS_AUTH=off.
+    required: bool
+    #: Whether the environment actually has what sign-in needs.
+    configured: bool
+    #: Handed to Google's button in the browser. Empty when auth is off.
+    client_id: str
+    admins: int
+
+
+def require_admin(authorization: str | None = Header(default=None)) -> auth.AdminUser:
+    """The signed-in person, or a refusal.
+
+    A missing configuration is 503 rather than 401 on purpose: it is a
+    deployment that was never finished, not somebody failing to log in, and
+    telling them to "sign in" would send them round a loop with no way out.
+    """
+    token = ""
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+    try:
+        return auth.verify(token)
+    except auth.AuthNotConfigured as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except auth.AuthError as exc:
+        raise HTTPException(401, str(exc)) from exc
+
+
+@app.get("/api/auth/status", response_model=AuthStatusOut)
+def auth_status() -> AuthStatusOut:
+    """What the sign-in page needs before anybody has signed in."""
+    return AuthStatusOut(**auth.status())
+
+
+@app.get("/api/auth/me", response_model=AdminOut)
+def who_am_i(admin: auth.AdminUser = Depends(require_admin)) -> AdminOut:
+    """Confirms a token is good and says whose it is."""
+    return AdminOut(email=admin.email, name=admin.name, picture=admin.picture)
+
+
 @app.get("/api/postings", response_model=list[PostingOut])
-def list_postings() -> list[PostingOut]:
+def list_postings(admin: auth.AdminUser = Depends(require_admin)) -> list[PostingOut]:
     """Every vacancy, with how many people have applied to each."""
     backend = get_backend()
     return [
@@ -627,7 +694,9 @@ def list_postings() -> list[PostingOut]:
 
 
 @app.post("/api/postings", response_model=PostingOut)
-def create_posting(body: NewPosting) -> PostingOut:
+def create_posting(
+    body: NewPosting, admin: auth.AdminUser = Depends(require_admin)
+) -> PostingOut:
     """Open a vacancy. The reviewed checklist is frozen onto it here."""
     if not body.job.requirements:
         raise HTTPException(400, "Read the advert first - the checklist is empty.")
@@ -647,12 +716,15 @@ def create_posting(body: NewPosting) -> PostingOut:
         title=body.job.title,
         summary=body.job.summary,
         profile=body.job,
+        created_by=admin.email,
     )
     return _posting_out(backend.save_posting(posting), [])
 
 
 @app.post("/api/postings/{slug}/status", response_model=PostingOut)
-def set_posting_status(slug: str, status: str) -> PostingOut:
+def set_posting_status(
+    slug: str, status: str, admin: auth.AdminUser = Depends(require_admin)
+) -> PostingOut:
     """Open or close a vacancy. A closed one stops accepting applications."""
     if status not in {"open", "closed"}:
         raise HTTPException(400, "Status must be open or closed.")
@@ -703,7 +775,9 @@ def apply(
 
 
 @app.get("/api/postings/{slug}/applications", response_model=ApplicationsOut)
-def list_applications(slug: str) -> ApplicationsOut:
+def list_applications(
+    slug: str, admin: auth.AdminUser = Depends(require_admin)
+) -> ApplicationsOut:
     """The dashboard for one vacancy, best fit first."""
     backend = get_backend()
     posting = _require_posting(slug)
@@ -724,33 +798,49 @@ def list_applications(slug: str) -> ApplicationsOut:
 
 
 @app.post("/api/postings/{slug}/read", response_model=ApplicationsOut)
-def read_pending(slug: str) -> ApplicationsOut:
+def read_pending(
+    slug: str, admin: auth.AdminUser = Depends(require_admin)
+) -> ApplicationsOut:
     """Read the CVs that have come in since last time. Bounded per call."""
     posting = _require_posting(slug)
     intake.read_pending(get_backend(), posting)
-    return list_applications(slug)
+    return list_applications(slug, admin)
 
 
 @app.post("/api/applications/{application_id}/decision", response_model=ApplicationOut)
-def set_decision(application_id: str, body: DecisionIn) -> ApplicationOut:
+def set_decision(
+    application_id: str, body: DecisionIn,
+    admin: auth.AdminUser = Depends(require_admin),
+) -> ApplicationOut:
     """What a person decided. The engine never writes here."""
     backend = get_backend()
     row = backend.application(application_id)
     if row is None:
         raise HTTPException(404, "No such application.")
 
+    changed = False
     if body.decision is not None:
         if body.decision not in postings.DECISION_LABEL:
             raise HTTPException(400, "Unknown decision.")
         row.decision = body.decision
+        changed = True
     if body.note is not None:
         row.note = body.note[:2000]
+        changed = True
+
+    # Who moved this person, and when. A shortlist nobody will own is worse
+    # than no shortlist: somebody has to be answerable for a rejection.
+    if changed:
+        row.decided_by = admin.email
+        row.decided_at = postings.now()
     backend.update_application(row)
     return _application_out(row)
 
 
 @app.get("/api/applications/{application_id}", response_model=RankedOut)
-def application_detail(application_id: str) -> RankedOut:
+def application_detail(
+    application_id: str, admin: auth.AdminUser = Depends(require_admin)
+) -> RankedOut:
     """Every requirement with its evidence, recomputed rather than stored."""
     backend = get_backend()
     row = backend.application(application_id)
@@ -766,7 +856,7 @@ def application_detail(application_id: str) -> RankedOut:
 
 
 @app.get("/api/cv-file/{application_id}")
-def cv_file(application_id: str):
+def cv_file(application_id: str, admin: auth.AdminUser = Depends(require_admin)):
     """The CV as it was uploaded, so a recruiter can read the actual document."""
     backend = get_backend()
     row = backend.application(application_id)

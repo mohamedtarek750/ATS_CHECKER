@@ -285,7 +285,10 @@ def test_an_application_survives_the_round_trip_through_a_sheet_row():
     assert _column_letter(0) == "A"
     assert _column_letter(25) == "Z"
     assert _column_letter(26) == "AA"
-    assert _column_letter(len(APPLICATION_COLUMNS) - 1) == "T"
+    # 22 columns, A..V. Hardcoded so an off-by-one in the range maths is caught
+    # rather than confirmed by the same expression that produced it.
+    assert len(APPLICATION_COLUMNS) == 22
+    assert _column_letter(len(APPLICATION_COLUMNS) - 1) == "V"
 
 
 def test_a_misconfigured_sheets_backend_says_what_is_missing():
@@ -323,6 +326,197 @@ def test_a_misconfigured_sheets_backend_says_what_is_missing():
         os.environ.pop("ATS_SHEET_ID", None)
         if saved is not None:
             os.environ["ATS_SHEET_ID"] = saved
+
+
+# --------------------------------------------------------------------------
+# Sign-in
+#
+# The dashboard holds strangers' names, phone numbers and CVs. These tests are
+# about the one thing that matters: that it cannot be read without signing in,
+# including when somebody skips the browser and calls the API directly.
+# --------------------------------------------------------------------------
+import contextlib  # noqa: E402
+import os  # noqa: E402
+
+
+@contextlib.contextmanager
+def environment(**values):
+    """Set env vars for the block, and put them back afterwards."""
+    saved = {k: os.environ.get(k) for k in values}
+    try:
+        for key, value in values.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        yield
+    finally:
+        for key, value in saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+def admin_client():
+    from fastapi.testclient import TestClient
+
+    from api.index import app
+
+    return TestClient(app)
+
+
+#: Everything that can see an applicant. If a route is added and not listed
+#: here, that is the point at which somebody should notice.
+GUARDED = [
+    ("GET", "/api/postings"),
+    ("POST", "/api/postings"),
+    ("GET", "/api/postings/data-analyst/applications"),
+    ("POST", "/api/postings/data-analyst/read"),
+    ("GET", "/api/applications/abc123"),
+    ("POST", "/api/applications/abc123/decision"),
+    ("GET", "/api/cv-file/abc123"),
+]
+
+
+def test_no_admin_route_answers_without_a_valid_sign_in():
+    """The guard is on the API, not only on the page.
+
+    A check that lives in the browser is one an attacker skips by calling the
+    endpoint directly, and what is behind these is other people's CVs.
+    """
+    client = admin_client()
+    with environment(
+        ATS_AUTH="on",
+        ATS_ADMIN_EMAILS="hr@company.com",
+        GOOGLE_OAUTH_CLIENT_ID="123.apps.googleusercontent.com",
+    ):
+        for method, path in GUARDED:
+            no_token = client.request(method, path, json={})
+            assert no_token.status_code == 401, f"{method} {path} answered without a token"
+
+            forged = client.request(
+                method, path, json={},
+                headers={"Authorization": "Bearer eyJhbGciOiJub25lIn0.e30."},
+            )
+            assert forged.status_code == 401, f"{method} {path} accepted a forged token"
+
+
+def test_an_unfinished_deployment_refuses_rather_than_opening():
+    """Fail closed. Defaulting to open is how a folder of CVs ends up public."""
+    client = admin_client()
+    with environment(
+        ATS_AUTH="on", ATS_ADMIN_EMAILS=None, GOOGLE_OAUTH_CLIENT_ID=None
+    ):
+        response = client.get("/api/postings")
+        # 503, not 401: nothing is wrong with the person, the deployment was
+        # never finished, and "sign in" would send them round a loop.
+        assert response.status_code == 503
+        detail = response.json()["detail"]
+        assert "GOOGLE_OAUTH_CLIENT_ID" in detail and "ATS_ADMIN_EMAILS" in detail
+
+        status = client.get("/api/auth/status").json()
+        assert status["required"] is True
+        assert status["configured"] is False
+        assert status["client_id"] == "", "no client id is leaked before setup"
+
+
+def test_applying_for_a_job_never_requires_an_account():
+    """A candidate cannot be asked to hold an account to apply for a job."""
+    client = admin_client()
+    with environment(
+        ATS_AUTH="on",
+        ATS_ADMIN_EMAILS="hr@company.com",
+        GOOGLE_OAUTH_CLIENT_ID="123.apps.googleusercontent.com",
+    ):
+        # Reachable without a token. 404 because this vacancy does not exist -
+        # what matters is that it is not 401.
+        assert client.get("/api/public/postings/whatever").status_code == 404
+        assert client.get("/api/auth/status").status_code == 200
+        assert client.get("/api/health").status_code == 200
+
+
+def test_switching_sign_in_off_is_explicit_and_visible():
+    from ats import auth
+
+    with environment(ATS_AUTH="off"):
+        assert not auth.auth_enabled()
+        user = auth.verify(None)
+        # Named, so the audit trail says "unauthenticated" rather than inventing
+        # a person who never signed in.
+        assert user.email == auth.DEVELOPMENT_USER_EMAIL
+        assert not user.is_real
+        assert auth.status()["required"] is False
+
+    for value in (None, "on", "true", "anything-else"):
+        with environment(ATS_AUTH=value):
+            assert auth.auth_enabled(), f"ATS_AUTH={value!r} must not open the door"
+
+
+def test_an_address_not_on_the_list_is_refused_by_name():
+    from ats import auth
+
+    with environment(
+        ATS_AUTH="on",
+        ATS_ADMIN_EMAILS="hr@company.com, lead@company.com",
+        GOOGLE_OAUTH_CLIENT_ID="123.apps.googleusercontent.com",
+    ):
+        assert auth.admin_emails() == {"hr@company.com", "lead@company.com"}
+        assert auth.is_configured()
+
+        # Claims as Google's library would hand them over, so the allow-list
+        # check is exercised without a real token.
+        for claims, expect in [
+            ({"iss": "https://accounts.google.com", "email": "stranger@elsewhere.com",
+              "email_verified": True}, "not on the list"),
+            ({"iss": "https://accounts.google.com", "email": "hr@company.com",
+              "email_verified": False}, "not verified"),
+            ({"iss": "https://evil.example", "email": "hr@company.com",
+              "email_verified": True}, "did not come from Google"),
+        ]:
+            try:
+                _verify_claims(claims)
+            except auth.AuthError as exc:
+                assert expect in str(exc), f"{claims} -> {exc}"
+            else:
+                raise AssertionError(f"{claims} was let in")
+
+
+def _verify_claims(claims: dict):
+    """Run auth.verify's checks against claims, without calling Google."""
+    from ats import auth
+
+    original = None
+    try:
+        from google.oauth2 import id_token as google_id_token
+
+        original = google_id_token.verify_oauth2_token
+        google_id_token.verify_oauth2_token = lambda *a, **k: claims
+        return auth.verify("pretend-token")
+    finally:
+        if original is not None:
+            from google.oauth2 import id_token as google_id_token
+
+            google_id_token.verify_oauth2_token = original
+
+
+def test_a_decision_records_who_made_it():
+    from ats.postings import Application
+
+    row = Application(job_slug="x", full_name="Omar", email="o@e.com")
+    assert row.decided_by == "" and row.decided_at == ""
+
+    row.decision = "rejected"
+    row.decided_by = "hr@company.com"
+    row.decided_at = "2026-09-01T10:00:00+00:00"
+    # Survives the round trip through a sheet row, or nobody is answerable.
+    from ats.backends.sheets import SheetsBackend
+
+    restored = SheetsBackend._to_application(
+        {k: str(v) for k, v in SheetsBackend._to_record(row).items()}
+    )
+    assert restored.decided_by == "hr@company.com"
+    assert restored.decided_at.startswith("2026-09-01")
 
 
 if __name__ == "__main__":
