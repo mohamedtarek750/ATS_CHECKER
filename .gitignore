@@ -28,3 +28,10 @@ audit/_cases/
 
 # TypeScript incremental build cache
 tsconfig.tsbuildinfo
+
+# Applications sent through the public link: real people's CVs, names, emails
+# and phone numbers. This directory must never reach the repository.
+data/hiring/
+
+# Google service account key for the Sheets/Drive backend.
+service-account*.json

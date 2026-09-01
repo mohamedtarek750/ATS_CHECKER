@@ -35,7 +35,7 @@ const STRENGTH_WORD: Record<string, string> = {
   none: "",
 };
 
-function ExperienceBlock({ review }: { review: ExperienceReview }) {
+export function ExperienceBlock({ review }: { review: ExperienceReview }) {
   return (
     <div className="mb-3">
       <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted">
@@ -75,7 +75,7 @@ function ExperienceBlock({ review }: { review: ExperienceReview }) {
   );
 }
 
-function RequirementList({
+export function RequirementList({
   label,
   results,
 }: {

@@ -350,3 +350,147 @@ export const STATUS_WORD: Record<Status, string> = {
   unclear: "Needs a look",
   not_met: "Not found",
 };
+
+// --------------------------------------------------------------------------
+// Postings and applications
+//
+// Everything above is stateless: the browser holds the CVs. These endpoints
+// persist, because a public application link means the person who applies and
+// the person who reads are not in the same session, or the same week.
+// --------------------------------------------------------------------------
+export interface Posting {
+  slug: string;
+  title: string;
+  summary: string;
+  status: "open" | "closed";
+  created: string;
+  must_total: number;
+  nice_total: number;
+  applications: number;
+  unread: number;
+}
+
+export interface PublicPosting {
+  slug: string;
+  title: string;
+  summary: string;
+  is_open: boolean;
+}
+
+export type ApplicationStatus = "pending" | "read" | "failed" | "not_a_cv";
+export type DecisionValue =
+  | "new" | "shortlisted" | "interviewing" | "offered" | "hired" | "rejected";
+
+export interface ApplicationRow {
+  id: string;
+  full_name: string;
+  email: string;
+  phone: string;
+  applied_at: string;
+  cv_filename: string;
+  cv_url: string;
+  status: ApplicationStatus;
+  detail: string;
+  read_at: string;
+  percent: number;
+  required_percent: number;
+  preferred_percent: number;
+  tier: string;
+  tier_label: string;
+  reason: string;
+  decision: DecisionValue;
+  decision_label: string;
+  note: string;
+  /** Scored under an older engine, so the number may not be reproducible. */
+  stale: boolean;
+}
+
+export interface ApplicationsResponse {
+  posting: Posting;
+  counts: Record<string, number>;
+  results: ApplicationRow[];
+}
+
+export const DECISIONS: DecisionValue[] = [
+  "new", "shortlisted", "interviewing", "offered", "hired", "rejected",
+];
+
+export const DECISION_TONE: Record<string, string> = {
+  new: "raised text-muted",
+  shortlisted: "bg-good-wash text-good",
+  interviewing: "bg-good-wash text-good",
+  offered: "bg-good-wash text-good",
+  hired: "bg-good-wash text-good",
+  rejected: "raised text-muted",
+};
+
+export async function listPostings(): Promise<Posting[]> {
+  return unwrap<Posting[]>(await fetch("/api/postings"));
+}
+
+export async function createPosting(job: JobProfile): Promise<Posting> {
+  return unwrap<Posting>(
+    await fetch("/api/postings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ job }),
+    })
+  );
+}
+
+export async function setPostingStatus(
+  slug: string,
+  status: "open" | "closed"
+): Promise<Posting> {
+  return unwrap<Posting>(
+    await fetch(`/api/postings/${slug}/status?status=${status}`, { method: "POST" })
+  );
+}
+
+export async function publicPosting(slug: string): Promise<PublicPosting> {
+  return unwrap<PublicPosting>(await fetch(`/api/public/postings/${slug}`));
+}
+
+export async function submitApplication(
+  slug: string,
+  fields: { full_name: string; email: string; phone: string },
+  file: File
+): Promise<{ id: string; full_name: string; status: string }> {
+  const body = new FormData();
+  body.append("full_name", fields.full_name);
+  body.append("email", fields.email);
+  body.append("phone", fields.phone);
+  body.append("file", file);
+  return unwrap(
+    await fetch(`/api/public/postings/${slug}/apply`, { method: "POST", body })
+  );
+}
+
+export async function listApplications(slug: string): Promise<ApplicationsResponse> {
+  return unwrap<ApplicationsResponse>(
+    await fetch(`/api/postings/${slug}/applications`)
+  );
+}
+
+export async function readPending(slug: string): Promise<ApplicationsResponse> {
+  return unwrap<ApplicationsResponse>(
+    await fetch(`/api/postings/${slug}/read`, { method: "POST" })
+  );
+}
+
+export async function applicationDetail(id: string): Promise<Ranked> {
+  return unwrap<Ranked>(await fetch(`/api/applications/${id}`));
+}
+
+export async function saveDecision(
+  id: string,
+  body: { decision?: DecisionValue; note?: string }
+): Promise<ApplicationRow> {
+  return unwrap<ApplicationRow>(
+    await fetch(`/api/applications/${id}/decision`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+  );
+}

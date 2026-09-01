@@ -19,7 +19,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -34,6 +34,8 @@ from ats.blueprint import CVBlueprint, blueprint_for, render  # noqa: E402
 from ats.stages import from_cv, jobspec, offline, parse, rank  # noqa: E402
 from ats.stages import template_match as template  # noqa: E402
 from ats.stages import match as match_stage  # noqa: E402
+from ats import intake, postings  # noqa: E402
+from ats.backends import get_backend  # noqa: E402
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 
@@ -354,6 +356,92 @@ def job_from_cv(body: FromCVRequest) -> JobProfile:
     return from_cv.requirements_from_cv(body.profile, strict=body.strict)
 
 
+def _template_out(report: template.TemplateReport) -> TemplateOut:
+    return TemplateOut(
+        percent=report.percent,
+        band=report.band,
+        sections=[
+            SectionFindingOut(
+                key=f.key, label=f.label, weight=f.weight,
+                status=f.status, detail=f.detail,
+            )
+            for f in report.sections
+        ],
+        strengths=report.strengths,
+        improvements=report.improvements,
+        recommendations=[
+            RecommendationOut(priority=r.priority, text=r.text)
+            for r in report.recommendations
+        ],
+        ideal_order=report.ideal_order,
+        candidate_order=report.candidate_order,
+        skill_placement=report.skill_placement,
+    )
+
+
+def _ranked_out(entry, template_out=None) -> "RankedOut":
+    """One ranked candidate in the shape the browser already knows how to render.
+
+    Used by the batch matcher and by the dashboard's per-candidate view, so a
+    saved application and a freshly matched one cannot drift apart on screen.
+    """
+    return RankedOut(
+        filename=entry.match.source_name,
+        name=entry.name,
+        headline=entry.headline,
+        email=entry.match.candidate.email,
+        phone=entry.match.candidate.phone,
+        years=entry.match.candidate.total_years_experience,
+        percent=entry.percent,
+        required_percent=entry.required_percent,
+        preferred_percent=entry.preferred_percent,
+        tier=entry.tier,
+        tier_label=rank.TIER_LABEL[entry.tier],
+        score=entry.score,
+        reason=entry.reason,
+        must_met=entry.match.must_met,
+        must_total=entry.match.must_total,
+        experience=ExperienceOut(
+            has_experience=entry.match.experience.has_experience,
+            total_years=entry.match.experience.total_years,
+            relevant_years=entry.match.experience.relevant_years,
+            shown_in_work=entry.match.experience.shown_in_work,
+            checkable=entry.match.experience.checkable,
+            verdict=entry.match.experience.verdict,
+            roles=[
+                RoleOut(
+                    title=role.title,
+                    company=role.company,
+                    years=role.years,
+                    is_internship=role.is_internship,
+                    relevance=role.relevance,
+                    demonstrates=role.demonstrates,
+                    has_outcomes=role.has_outcomes,
+                    note=role.note,
+                )
+                for role in entry.match.experience.roles
+            ],
+        ),
+        nice_met=entry.match.nice_met,
+        nice_total=entry.match.nice_total,
+        requirements=[
+            RequirementOut(
+                requirement=r.requirement,
+                kind=r.kind,
+                importance=r.importance,
+                status=r.status,
+                evidence=r.evidence,
+                strength=r.strength,
+                source=r.source_label,
+                explanation=r.explanation,
+            )
+            for r in entry.match.results
+        ],
+        possibly_ai=entry.flagged_ai,
+        template=template_out,
+    )
+
+
 @app.post("/api/match", response_model=MatchResponse)
 def match(body: MatchRequest) -> MatchResponse:
     """Rank a whole pool against a job. Pure computation - no model, no waiting."""
@@ -381,107 +469,9 @@ def match(body: MatchRequest) -> MatchResponse:
         nice_total=len(body.job.nice_to_haves),
         counts=rank.summarize(ranked),
         results=[
-            RankedOut(
-                filename=entry.match.source_name,
-                name=entry.name,
-                headline=entry.headline,
-                email=entry.match.candidate.email,
-                phone=entry.match.candidate.phone,
-                years=entry.match.candidate.total_years_experience,
-                percent=entry.percent,
-                required_percent=entry.required_percent,
-                preferred_percent=entry.preferred_percent,
-                tier=entry.tier,
-                tier_label=rank.TIER_LABEL[entry.tier],
-                score=entry.score,
-                reason=entry.reason,
-                must_met=entry.match.must_met,
-                must_total=entry.match.must_total,
-                experience=ExperienceOut(
-                    has_experience=entry.match.experience.has_experience,
-                    total_years=entry.match.experience.total_years,
-                    relevant_years=entry.match.experience.relevant_years,
-                    shown_in_work=entry.match.experience.shown_in_work,
-                    checkable=entry.match.experience.checkable,
-                    verdict=entry.match.experience.verdict,
-                    roles=[
-                        RoleOut(
-                            title=role.title,
-                            company=role.company,
-                            years=role.years,
-                            is_internship=role.is_internship,
-                            relevance=role.relevance,
-                            demonstrates=role.demonstrates,
-                            has_outcomes=role.has_outcomes,
-                            note=role.note,
-                        )
-                        for role in entry.match.experience.roles
-                    ],
-                ),
-                nice_met=entry.match.nice_met,
-                nice_total=entry.match.nice_total,
-                requirements=[
-                    RequirementOut(
-                        requirement=r.requirement,
-                        kind=r.kind,
-                        importance=r.importance,
-                        status=r.status,
-                        evidence=r.evidence,
-                        strength=r.strength,
-                        source=r.source_label,
-                        explanation=r.explanation,
-                    )
-                    for r in entry.match.results
-                ],
-                possibly_ai=entry.flagged_ai,
-                template=templates.get(entry.match.source_name),
-            )
+            _ranked_out(entry, templates.get(entry.match.source_name))
             for entry in ranked
         ],
-    )
-
-
-def _blueprint_out(blueprint: CVBlueprint) -> BlueprintOut:
-    return BlueprintOut(
-        job_title=blueprint.job_title,
-        seniority=blueprint.seniority,
-        sections=[
-            SectionSpecOut(
-                key=s.key, label=s.label, weight=s.weight, why=s.why,
-                should_contain=s.should_contain,
-            )
-            for s in blueprint.sections
-        ],
-        priority_skills=blueprint.priority_skills,
-        summary_formula=blueprint.summary_formula,
-        summary_should_mention=blueprint.summary_should_mention,
-        bullet_pattern=blueprint.bullet_pattern,
-        wants_metrics=blueprint.wants_metrics,
-        notes=blueprint.notes,
-        preview=render(blueprint),
-    )
-
-
-def _template_out(report: template.TemplateReport) -> TemplateOut:
-    return TemplateOut(
-        percent=report.percent,
-        band=report.band,
-        sections=[
-            SectionFindingOut(
-                key=f.key, label=f.label, weight=f.weight,
-                status=f.status, detail=f.detail,
-            )
-            for f in report.sections
-        ],
-        strengths=report.strengths,
-        improvements=report.improvements,
-        recommendations=[
-            RecommendationOut(priority=r.priority, text=r.text)
-            for r in report.recommendations
-        ],
-        ideal_order=report.ideal_order,
-        candidate_order=report.candidate_order,
-        skill_placement=report.skill_placement,
     )
 
 
@@ -497,3 +487,308 @@ def template_report(body: TemplateRequest) -> TemplateOut:
     blueprint = blueprint_for(body.job)
     match_result = match_stage.match(body.profile, body.job)
     return _template_out(template.evaluate(body.profile, blueprint, match_result))
+
+
+# --------------------------------------------------------------------------
+# Postings, applications, and the dashboard over them
+#
+# Everything above this line is stateless: a CV goes in, a result comes back,
+# and the server keeps nothing. Everything below it persists, because a public
+# application link means somebody applies on Tuesday and a recruiter looks on
+# Friday. That is the whole reason a backend exists.
+# --------------------------------------------------------------------------
+class PostingOut(BaseModel):
+    slug: str
+    title: str
+    summary: str
+    status: str
+    created: str
+    must_total: int
+    nice_total: int
+    #: Filled in on the dashboard listing, not on the public page.
+    applications: int = 0
+    unread: int = 0
+
+
+class PublicPostingOut(BaseModel):
+    """What a stranger is allowed to see. Never the checklist itself.
+
+    Publishing the must-haves would tell every applicant exactly which words to
+    paste into their CV, which is the failure mode the whole evidence-weighted
+    matcher exists to resist.
+    """
+
+    slug: str
+    title: str
+    summary: str
+    is_open: bool
+
+
+class NewPosting(BaseModel):
+    job: JobProfile
+    #: Optional: a readable URL. Derived from the title when absent.
+    slug: str = ""
+
+
+class ApplicationOut(BaseModel):
+    id: str
+    full_name: str
+    email: str
+    phone: str
+    applied_at: str
+    cv_filename: str
+    cv_url: str
+    status: str
+    detail: str
+    read_at: str
+    percent: int
+    required_percent: int
+    preferred_percent: int
+    tier: str
+    tier_label: str
+    reason: str
+    decision: str
+    decision_label: str
+    note: str
+    #: Scored under an older engine, so the number may not be reproducible.
+    stale: bool
+
+
+class ApplicationsOut(BaseModel):
+    posting: PostingOut
+    counts: dict
+    results: list[ApplicationOut]
+
+
+class DecisionIn(BaseModel):
+    decision: str | None = None
+    note: str | None = None
+
+
+class ReceiptOut(BaseModel):
+    id: str
+    full_name: str
+    status: str
+
+
+def _posting_out(posting, rows: list | None = None) -> PostingOut:
+    return PostingOut(
+        slug=posting.slug,
+        title=posting.title,
+        summary=posting.summary,
+        status=posting.status,
+        created=posting.created,
+        must_total=len(posting.profile.must_haves),
+        nice_total=len(posting.profile.nice_to_haves),
+        applications=len(rows) if rows is not None else 0,
+        unread=sum(1 for r in (rows or []) if r.status == "pending"),
+    )
+
+
+def _application_out(row) -> ApplicationOut:
+    return ApplicationOut(
+        id=row.id,
+        full_name=row.full_name,
+        email=row.email,
+        phone=row.phone,
+        applied_at=row.applied_at,
+        cv_filename=row.cv_filename,
+        cv_url=row.cv_url,
+        status=row.status,
+        detail=row.detail,
+        read_at=row.read_at,
+        percent=row.percent,
+        required_percent=row.required_percent,
+        preferred_percent=row.preferred_percent,
+        tier=row.tier,
+        tier_label=rank.TIER_LABEL.get(row.tier, "Not read yet"),
+        reason=row.reason,
+        decision=row.decision,
+        decision_label=postings.DECISION_LABEL.get(row.decision, row.decision),
+        note=row.note,
+        stale=row.is_stale,
+    )
+
+
+def _require_posting(slug: str):
+    posting = get_backend().posting(slug)
+    if posting is None:
+        raise HTTPException(404, "No such vacancy.")
+    return posting
+
+
+@app.get("/api/postings", response_model=list[PostingOut])
+def list_postings() -> list[PostingOut]:
+    """Every vacancy, with how many people have applied to each."""
+    backend = get_backend()
+    return [
+        _posting_out(p, backend.applications(p.slug)) for p in backend.postings()
+    ]
+
+
+@app.post("/api/postings", response_model=PostingOut)
+def create_posting(body: NewPosting) -> PostingOut:
+    """Open a vacancy. The reviewed checklist is frozen onto it here."""
+    if not body.job.requirements:
+        raise HTTPException(400, "Read the advert first - the checklist is empty.")
+
+    backend = get_backend()
+    slug = postings.slugify(body.slug or body.job.title)
+    # Two vacancies with the same title are ordinary. Silently overwriting the
+    # first one, and every application to it, is not.
+    if backend.posting(slug) is not None:
+        suffix = 2
+        while backend.posting(f"{slug}-{suffix}") is not None:
+            suffix += 1
+        slug = f"{slug}-{suffix}"
+
+    posting = postings.JobPosting(
+        slug=slug,
+        title=body.job.title,
+        summary=body.job.summary,
+        profile=body.job,
+    )
+    return _posting_out(backend.save_posting(posting), [])
+
+
+@app.post("/api/postings/{slug}/status", response_model=PostingOut)
+def set_posting_status(slug: str, status: str) -> PostingOut:
+    """Open or close a vacancy. A closed one stops accepting applications."""
+    if status not in {"open", "closed"}:
+        raise HTTPException(400, "Status must be open or closed.")
+    backend = get_backend()
+    posting = _require_posting(slug)
+    posting.status = status
+    backend.save_posting(posting)
+    return _posting_out(posting, backend.applications(slug))
+
+
+@app.get("/api/public/postings/{slug}", response_model=PublicPostingOut)
+def public_posting(slug: str) -> PublicPostingOut:
+    """What the application page shows. Title and summary, never the criteria."""
+    posting = _require_posting(slug)
+    return PublicPostingOut(
+        slug=posting.slug,
+        title=posting.title,
+        summary=posting.summary,
+        is_open=posting.is_open,
+    )
+
+
+@app.post("/api/public/postings/{slug}/apply", response_model=ReceiptOut)
+def apply(
+    slug: str,
+    full_name: str = Form(...),
+    email: str = Form(...),
+    phone: str = Form(""),
+    file: UploadFile = File(...),
+) -> ReceiptOut:
+    """A stranger applies. Stores the file and returns - never reads it here.
+
+    Reading a CV takes long enough that doing it in this request would leave the
+    applicant on a spinner and lose their application to a timeout. The row is
+    written as `pending` and picked up afterwards.
+    """
+    posting = _require_posting(slug)
+    data = file.file.read()
+    try:
+        row = intake.receive(
+            get_backend(), posting,
+            full_name=full_name, email=email, phone=phone,
+            filename=file.filename or "cv.pdf", data=data,
+        )
+    except intake.IntakeError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return ReceiptOut(id=row.id, full_name=row.full_name, status=row.status)
+
+
+@app.get("/api/postings/{slug}/applications", response_model=ApplicationsOut)
+def list_applications(slug: str) -> ApplicationsOut:
+    """The dashboard for one vacancy, best fit first."""
+    backend = get_backend()
+    posting = _require_posting(slug)
+    rows = backend.applications(slug)
+
+    order = {"accepted": 0, "waiting_list": 1, "rejected": 2, "not_a_cv": 3, "": 4}
+    rows.sort(key=lambda r: (order.get(r.tier, 4), -r.percent, r.full_name.lower()))
+
+    counts: dict[str, int] = {"total": len(rows)}
+    for row in rows:
+        key = row.tier if row.status == "read" else row.status
+        counts[key] = counts.get(key, 0) + 1
+    return ApplicationsOut(
+        posting=_posting_out(posting, rows),
+        counts=counts,
+        results=[_application_out(r) for r in rows],
+    )
+
+
+@app.post("/api/postings/{slug}/read", response_model=ApplicationsOut)
+def read_pending(slug: str) -> ApplicationsOut:
+    """Read the CVs that have come in since last time. Bounded per call."""
+    posting = _require_posting(slug)
+    intake.read_pending(get_backend(), posting)
+    return list_applications(slug)
+
+
+@app.post("/api/applications/{application_id}/decision", response_model=ApplicationOut)
+def set_decision(application_id: str, body: DecisionIn) -> ApplicationOut:
+    """What a person decided. The engine never writes here."""
+    backend = get_backend()
+    row = backend.application(application_id)
+    if row is None:
+        raise HTTPException(404, "No such application.")
+
+    if body.decision is not None:
+        if body.decision not in postings.DECISION_LABEL:
+            raise HTTPException(400, "Unknown decision.")
+        row.decision = body.decision
+    if body.note is not None:
+        row.note = body.note[:2000]
+    backend.update_application(row)
+    return _application_out(row)
+
+
+@app.get("/api/applications/{application_id}", response_model=RankedOut)
+def application_detail(application_id: str) -> RankedOut:
+    """Every requirement with its evidence, recomputed rather than stored."""
+    backend = get_backend()
+    row = backend.application(application_id)
+    if row is None:
+        raise HTTPException(404, "No such application.")
+    posting = _require_posting(row.job_slug)
+
+    detail = intake.detail_for(backend, posting, row)
+    if detail is None:
+        raise HTTPException(409, "This CV has not been read yet.")
+    _profile, entry, report = detail
+    return _ranked_out(entry, _template_out(report))
+
+
+@app.get("/api/cv-file/{application_id}")
+def cv_file(application_id: str):
+    """The CV as it was uploaded, so a recruiter can read the actual document."""
+    backend = get_backend()
+    row = backend.application(application_id)
+    if row is None:
+        raise HTTPException(404, "No such application.")
+    data = backend.cv_bytes(application_id)
+    if data is None:
+        raise HTTPException(404, "The stored file is missing.")
+
+    suffix = Path(row.cv_filename or "cv.pdf").suffix.lower()
+    media = {
+        ".pdf": "application/pdf",
+        ".txt": "text/plain",
+        ".md": "text/plain",
+        ".rtf": "application/rtf",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    }.get(suffix, "application/octet-stream")
+    return Response(
+        content=data,
+        media_type=media,
+        headers={
+            "Content-Disposition":
+                f'inline; filename="{row.cv_filename or "cv" + suffix}"'
+        },
+    )

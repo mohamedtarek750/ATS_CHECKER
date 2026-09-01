@@ -11,3 +11,9 @@ google-genai>=1.0        # ATS_PROVIDER=gemini
 
 # Local tooling only - not needed on Vercel.
 python-dotenv>=1
+
+# Optional: only for ATS_BACKEND=sheets, which keeps applications in a Google
+# Sheet and the CVs in Drive. The default backend is local files and needs none
+# of this.
+# google-api-python-client>=2
+# google-auth>=2
