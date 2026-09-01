@@ -153,16 +153,16 @@ def cmd_shortlist(args: argparse.Namespace) -> int:
 
     print(f"\n{job.title} - {pool['total']} candidate(s) in the pool, "
           f"ranked in {time.time() - started:.2f}s")
-    print(f"  Shortlist    : {stats['shortlist']}")
-    print(f"  Worth a look : {stats['review']}")
-    print(f"  Not a match  : {stats['not_a_match']}")
+    print(f"  Accepted     : {stats['accepted']}")
+    print(f"  Waiting list : {stats['waiting_list']}")
+    print(f"  Rejected     : {stats['rejected']}")
     if stats["not_a_cv"]:
         print(f"  Not CVs      : {stats['not_a_cv']}")
     if stats["flagged_ai"]:
         print(f"  Flagged as possibly AI-written (review, not rejected): "
               f"{stats['flagged_ai']}")
 
-    shown = [r for r in ranked if r.tier in ("shortlist", "review")]
+    shown = [r for r in ranked if r.tier in ("accepted", "waiting_list")]
     if args.all:
         shown = ranked
 

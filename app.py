@@ -372,9 +372,9 @@ def tab_shortlist(settings: Settings) -> None:
     stats = rank.summarize(ranked)
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Shortlist", stats["shortlist"])
-    c2.metric("Worth a look", stats["review"])
-    c3.metric("Not a match", stats["not_a_match"])
+    c1.metric("Accepted", stats["accepted"])
+    c2.metric("Waiting list", stats["waiting_list"])
+    c3.metric("Rejected", stats["rejected"])
     c4.metric("Candidates", stats["total"] - stats["not_a_cv"])
 
     st.caption(
@@ -393,7 +393,7 @@ def tab_shortlist(settings: Settings) -> None:
     for entry in ranked:
         if entry.tier == "not_a_cv":
             continue
-        if entry.tier == "not_a_match" and not show_all:
+        if entry.tier == "rejected" and not show_all:
             continue
 
         flag = "  |  possibly AI-written" if entry.flagged_ai else ""
@@ -401,7 +401,7 @@ def tab_shortlist(settings: Settings) -> None:
             f"{rank.TIER_LABEL[entry.tier]}  |  {entry.name}  |  "
             f"{entry.match.must_met}/{entry.match.must_total} must-haves{flag}"
         )
-        with st.expander(header, expanded=entry.tier == "shortlist"):
+        with st.expander(header, expanded=entry.tier == "accepted"):
             candidate = entry.match.candidate
             top, side = st.columns([2, 1])
             top.write(entry.reason)

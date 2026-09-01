@@ -15,9 +15,9 @@ import { Note, Score, Stat } from "./Shell";
 import { TemplateBlock } from "./TemplatePanel";
 
 const TIER_CHIP: Record<string, string> = {
-  shortlist: "bg-good-wash text-good",
-  review: "bg-warn-wash text-warn",
-  not_a_match: "raised text-muted",
+  accepted: "bg-good-wash text-good",
+  waiting_list: "bg-warn-wash text-warn",
+  rejected: "raised text-muted",
   not_a_cv: "raised text-muted",
 };
 
@@ -132,7 +132,7 @@ function RequirementList({
 }
 
 function Row({ entry, fileUrl }: { entry: Ranked; fileUrl?: string }) {
-  const [open, setOpen] = useState(entry.tier === "shortlist");
+  const [open, setOpen] = useState(entry.tier === "accepted");
 
   return (
     <div className="card animate-rise overflow-hidden">
@@ -293,10 +293,10 @@ export default function Results({
   const counts = data.counts;
 
   const visible = data.results.filter(
-    (e) => e.tier !== "not_a_cv" && (showAll || e.tier !== "not_a_match")
+    (e) => e.tier !== "not_a_cv" && (showAll || e.tier !== "rejected")
   );
   const hidden = data.results.filter(
-    (e) => e.tier === "not_a_match" || e.tier === "not_a_cv"
+    (e) => e.tier === "rejected" || e.tier === "not_a_cv"
   ).length;
 
   function download() {
@@ -312,9 +312,9 @@ export default function Results({
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat value={counts.shortlist ?? 0} label="Shortlist" tone="good" />
-        <Stat value={counts.review ?? 0} label="Worth a look" tone="warn" />
-        <Stat value={counts.not_a_match ?? 0} label="Not a match" />
+        <Stat value={counts.accepted ?? 0} label="Accepted" tone="good" />
+        <Stat value={counts.waiting_list ?? 0} label="Waiting list" tone="warn" />
+        <Stat value={counts.rejected ?? 0} label="Rejected" />
         <Stat
           value={(counts.total ?? 0) - (counts.not_a_cv ?? 0)}
           label="Candidates"
@@ -355,7 +355,7 @@ export default function Results({
             checked={showAll}
             onChange={(e) => setShowAll(e.target.checked)}
           />
-          Show the {hidden} who are not a match
+          Show the {hidden} rejected
         </label>
       )}
     </div>

@@ -12,21 +12,27 @@ from typing import Literal
 
 from .match import MatchResult
 
-Tier = Literal["shortlist", "review", "not_a_match", "not_a_cv"]
+Tier = Literal["accepted", "waiting_list", "rejected", "not_a_cv"]
 
 TIER_LABEL = {
-    "shortlist": "Shortlist",
-    "review": "Worth a look",
-    "not_a_match": "Not a match",
+    "accepted": "Accepted",
+    "waiting_list": "Waiting list",
+    "rejected": "Rejected",
     "not_a_cv": "Not a CV",
 }
 
 TIER_FOLDER = {
-    "shortlist": "1_shortlist",
-    "review": "2_worth_a_look",
-    "not_a_match": "3_not_a_match",
+    "accepted": "1_accepted",
+    "waiting_list": "2_waiting_list",
+    "rejected": "3_rejected",
     "not_a_cv": "0_not_a_cv",
 }
+
+# The cut-offs, in percent, fixed in code rather than exposed as a slider. A
+# recruiter nudging a threshold silently moves real people across the line
+# between an interview and a rejection, and nobody reviews who moved.
+ACCEPTED_AT = 80
+WAITING_LIST_AT = 70
 
 # Fixed weights, per requirement, by what it is and whether it is required.
 # A missing Docker listed as "preferred" must not cost what a missing mandatory
@@ -101,10 +107,10 @@ class RankedCandidate:
         preferred one is worth one, and each is earned in proportion to how firmly
         the CV evidences it. Every point is traceable to a named requirement and a
         line of the CV, which is the only kind of percentage worth putting next to
-        a person's name.
+        a person's name - and it is the number the tier is cut from, so what the
+        recruiter reads is what decided the outcome.
         """
-        earned, possible = _weighted(self.match.results)
-        return int(round(earned / possible * 100)) if possible else 0
+        return percent_of(self.match)
 
     @property
     def percent_label(self) -> str:
@@ -135,32 +141,82 @@ def _score(result: MatchResult) -> float:
     return round(must + nice, 2)
 
 
-def _tier(result: MatchResult) -> tuple[Tier, str]:
+def percent_of(result: MatchResult) -> int:
+    """The headline match percentage. The tier is cut straight off this."""
+    earned, possible = _weighted(result.results)
+    return int(round(earned / possible * 100)) if possible else 0
+
+
+def _tier(result: MatchResult, percent: int) -> tuple[Tier, str]:
+    """Which band this candidate falls in, and the sentence explaining it.
+
+    The band is the percentage and nothing else, so that the number shown next
+    to somebody's name is the number that decided their outcome. Where the
+    must-haves stand is always said in the reason, because a percentage alone
+    cannot tell a recruiter that an otherwise strong candidate is missing
+    something the advert called essential.
+    """
     if not result.candidate.is_cv:
         kind = result.candidate.document_type.replace("_", " ")
         return "not_a_cv", f"This is a {kind}, not a CV."
 
     met, total = result.must_met, result.must_total
-    if total == 0:
-        return "review", "The vacancy lists no must-have requirements."
-
     missing = result.missing_labels
-    if met == total:
-        return "shortlist", "Meets every must-have requirement."
-
-    # One short, and it is a near miss rather than an absence: a human should see
-    # this rather than the system quietly closing the door.
     borderline = [r for r in result.must_results if r.status in {"partial", "unclear"}]
-    if met >= total - 1 and borderline:
-        return "review", (
-            f"Meets {met} of {total}. Close on: "
-            + "; ".join(r.requirement for r in borderline[:2])
-        )
-    if met >= total - 1:
-        return "review", f"Meets {met} of {total}. Short on: {missing[0]}"
 
-    return "not_a_match", (
-        f"Meets {met} of {total}. Missing: " + "; ".join(missing[:3])
+    if total == 0:
+        standing = "The vacancy lists no must-have requirements"
+    elif met == total:
+        standing = f"Meets all {total} must-have requirements"
+    else:
+        standing = f"Meets {met} of {total} must-haves"
+
+    if percent >= ACCEPTED_AT:
+        # Above the bar on the total, but short of something called essential.
+        # Saying so is the difference between a recruiter trusting this list and
+        # discovering the gap in the interview.
+        if missing:
+            return "accepted", (
+                f"{percent}% overall, above the {ACCEPTED_AT}% bar. {standing} - "
+                f"check {missing[0]} before inviting them."
+            )
+        return "accepted", f"{percent}% overall. {standing}."
+
+    if percent >= WAITING_LIST_AT:
+        if borderline:
+            return "waiting_list", (
+                f"{percent}%, just under the {ACCEPTED_AT}% bar. {standing}, and "
+                f"close on: " + "; ".join(r.requirement for r in borderline[:2])
+            )
+        if missing:
+            return "waiting_list", (
+                f"{percent}%, just under the {ACCEPTED_AT}% bar. {standing}. "
+                f"Short on: " + "; ".join(missing[:2])
+            )
+        return "waiting_list", (
+            f"{percent}%, just under the {ACCEPTED_AT}% bar. {standing}."
+        )
+
+    # The one floor under the percentage. Meeting everything the employer called
+    # essential cannot be a rejection: an advert with six "preferred" extras drags
+    # a fully qualified candidate to 48% on arithmetic alone, and rejecting them
+    # would be this system telling an employer that the person who meets their
+    # every stated requirement is not worth a look. A human decides that one.
+    if total and met == total:
+        return "waiting_list", (
+            f"{percent}% overall, which is below the {WAITING_LIST_AT}% bar, but "
+            f"{standing.lower()} - the percentage is held down by preferred extras "
+            f"rather than by anything the advert called essential."
+        )
+
+    if missing:
+        return "rejected", (
+            f"{percent}%, below the {WAITING_LIST_AT}% bar. {standing}. "
+            f"Missing: " + "; ".join(missing[:3])
+        )
+    return "rejected", (
+        f"{percent}%, below the {WAITING_LIST_AT}% bar. {standing}, but too little "
+        f"of what the advert asked for is evidenced."
     )
 
 
@@ -168,12 +224,12 @@ def rank(results: list[MatchResult]) -> list[RankedCandidate]:
     """Order the pool: best fit first, non-CVs last."""
     ranked = []
     for result in results:
-        tier, reason = _tier(result)
+        tier, reason = _tier(result, percent_of(result))
         ranked.append(
             RankedCandidate(match=result, tier=tier, score=_score(result), reason=reason)
         )
 
-    order = {"shortlist": 0, "review": 1, "not_a_match": 2, "not_a_cv": 3}
+    order = {"accepted": 0, "waiting_list": 1, "rejected": 2, "not_a_cv": 3}
     ranked.sort(key=lambda r: (order[r.tier], -r.score, r.name.lower()))
     return ranked
 
@@ -184,9 +240,9 @@ def summarize(ranked: list[RankedCandidate]) -> dict:
         counts[entry.tier] = counts.get(entry.tier, 0) + 1
     return {
         "total": len(ranked),
-        "shortlist": counts.get("shortlist", 0),
-        "review": counts.get("review", 0),
-        "not_a_match": counts.get("not_a_match", 0),
+        "accepted": counts.get("accepted", 0),
+        "waiting_list": counts.get("waiting_list", 0),
+        "rejected": counts.get("rejected", 0),
         "not_a_cv": counts.get("not_a_cv", 0),
         "flagged_ai": sum(1 for e in ranked if e.flagged_ai),
     }

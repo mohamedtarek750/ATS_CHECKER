@@ -216,25 +216,51 @@ def test_a_certification_matches_on_its_code_not_the_whole_phrase():
 # --------------------------------------------------------------------------
 # Stage 5 - ranking
 # --------------------------------------------------------------------------
-def test_tiers_follow_must_haves_only():
+def test_meeting_every_must_have_is_never_a_rejection():
+    """An advert's optional wishlist must not reject a qualified candidate.
+
+    Six "preferred" extras drag someone who meets every essential requirement to
+    48% on arithmetic alone. Rejecting them would be this system telling an
+    employer that the person meeting their every stated requirement is not worth
+    looking at, which is not a call it should make.
+    """
+    job = make_job(requirements=[
+        Requirement(text="Strong SQL", kind="skill", importance="must_have"),
+        Requirement(text="Power BI", kind="skill", importance="must_have"),
+        Requirement(text="Excel", kind="skill", importance="must_have"),
+    ] + [
+        Requirement(text=name, kind="skill", importance="nice_to_have")
+        for name in ("Azure", "Databricks", "Snowflake", "dbt", "Airflow", "Kubernetes")
+    ])
+    entry = rank.rank([match_stage.match(make_candidate(certifications=[]), job)])[0]
+
+    assert entry.match.must_met == entry.match.must_total
+    assert entry.percent < rank.WAITING_LIST_AT, "the arithmetic really is this low"
+    assert entry.tier == "waiting_list", "meeting every must-have is not a rejection"
+    assert "preferred extras" in entry.reason
+
+
+def test_tiers_are_cut_from_the_percentage():
+    """Accepted at 80%+, waiting list 70-79%, rejected below 70%."""
     job = make_job()
-    full = match_stage.match(make_candidate(), job)
-    assert rank.rank([full])[0].tier == "shortlist", "no nice-to-haves, still a match"
+    full = rank.rank([match_stage.match(make_candidate(), job)])[0]
+    assert full.percent >= rank.ACCEPTED_AT
+    assert full.tier == "accepted"
 
     # Clear the certification too: a Power BI certificate IS evidence of Power BI,
     # so leaving it in would credit the candidate with a skill they do have.
     weak = match_stage.match(
         make_candidate(skills=["Excel"], certifications=[], headline="Office Admin"), job
     )
-    assert rank.rank([weak])[0].tier == "not_a_match"
+    assert rank.rank([weak])[0].tier == "rejected"
 
 
 def test_a_single_near_miss_lands_in_review_not_rejected():
     job = make_job()
     close = match_stage.match(make_candidate(total_years_experience=1.5), job)
     entry = rank.rank([close])[0]
-    assert entry.tier == "review", "a human should see this, not have it closed"
-    assert "Close on" in entry.reason
+    assert entry.tier == "waiting_list", "a human should see this, not have it closed"
+    assert "close on" in entry.reason.lower()
 
 
 def test_ordering_puts_the_best_fit_first():
@@ -270,7 +296,7 @@ def test_ai_suspicion_is_a_flag_and_changes_no_tier():
     flagged = match_stage.match(make_candidate(ai_generated_score=95), job)
     entry = rank.rank([flagged])[0]
     assert entry.flagged_ai is True
-    assert entry.tier == "shortlist", "the flag must not decide anything"
+    assert entry.tier == "accepted", "the flag must not decide anything"
 
 
 # --------------------------------------------------------------------------
@@ -337,7 +363,7 @@ def test_ranking_a_large_pool_is_fast_and_needs_no_model():
 
         assert len(ranked) == 500
         assert elapsed < 5.0, f"500 candidates took {elapsed:.1f}s"
-        assert rank.summarize(ranked)["shortlist"] == 500
+        assert rank.summarize(ranked)["accepted"] == 500
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -393,8 +419,10 @@ def test_a_missing_preferred_skill_costs_less_than_a_missing_required_one():
     # something the advert only preferred must come out ahead - otherwise the
     # word "preferred" has no effect on anything and the distinction is theatre.
     assert misses_optional.percent > misses_required.percent
-    assert misses_optional.tier == "shortlist"
-    assert misses_required.tier != "shortlist"
+    # Missing something merely preferred keeps you in front of a human; missing
+    # something the advert called essential does not.
+    assert misses_optional.tier == "waiting_list"
+    assert misses_required.tier == "rejected"
 
     # And the two figures are reported apart, so a reader can see which is which.
     assert misses_optional.required_percent > misses_optional.preferred_percent

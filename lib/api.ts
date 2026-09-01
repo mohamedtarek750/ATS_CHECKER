@@ -6,7 +6,7 @@
 
 export type Importance = "must_have" | "nice_to_have";
 export type Status = "met" | "partial" | "unclear" | "not_met";
-export type Tier = "shortlist" | "review" | "not_a_match" | "not_a_cv";
+export type Tier = "accepted" | "waiting_list" | "rejected" | "not_a_cv";
 
 export interface Requirement {
   text: string;

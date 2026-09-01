@@ -131,8 +131,8 @@ export default function Page() {
         {job && ready.length > 0 && (
           <Step
             index={3}
-            title="The shortlist"
-            hint="How far each candidate meets what the advert actually asked for."
+            title="The decision"
+            hint="Accepted at 80% and above, waiting list from 70%, rejected below that."
             active={!results}
             done={!!results}
           >

@@ -553,7 +553,11 @@ def _concept_in_sections(
 
 #: How many skills a CV may claim per line of work it actually describes before
 #: the list stops being a summary of the CV and starts being the whole of it.
-_CLAIMS_PER_DEMONSTRATION = 4
+#: Measured against real CVs, which sit around two claims per described line; a
+#: genuine keyword wall runs past thirty. The gap between those is wide, so this
+#: sits well clear of ordinary CVs on purpose - set tight, it fired on a short
+#: honest CV with five skills and one bullet and cost that candidate the match.
+_CLAIMS_PER_DEMONSTRATION = 8
 
 
 def _uncorroborated(profile: CandidateProfile) -> bool:
