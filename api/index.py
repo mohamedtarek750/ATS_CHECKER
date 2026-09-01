@@ -45,7 +45,7 @@ from ats.stages import template_match as template  # noqa: E402
 from ats.stages import match as match_stage  # noqa: E402
 from ats import intake, postings  # noqa: E402
 from ats.backends import get_backend  # noqa: E402
-from ats import auth  # noqa: E402
+from ats import auth, notify, stats as stats_module  # noqa: E402
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 
@@ -774,6 +774,11 @@ def apply(
         )
     except intake.IntakeError as exc:
         raise HTTPException(400, str(exc)) from exc
+
+    # The CV is stored by this point, so a mail outage costs a receipt and never
+    # an application. `send` reports rather than raises, for exactly this.
+    notify.application_received(row, posting)
+
     return ReceiptOut(id=row.id, full_name=row.full_name, status=row.status)
 
 
@@ -884,4 +889,129 @@ def cv_file(application_id: str, admin: auth.AdminUser = Depends(require_admin))
             "Content-Disposition":
                 f'inline; filename="{row.cv_filename or "cv" + suffix}"'
         },
+    )
+
+
+# --------------------------------------------------------------------------
+# Automation: reading what arrived, and saying so
+# --------------------------------------------------------------------------
+class StatsRequirementOut(BaseModel):
+    requirement: str
+    kind: str
+    importance: str
+    met: int
+    partial: int
+    total: int
+    percent: int
+
+
+class StatsOut(BaseModel):
+    total: int
+    read: int
+    pending: int
+    unreadable: int
+    by_tier: dict
+    by_decision: dict
+    average_percent: int
+    median_percent: int
+    per_day: list[list]
+    hardest: list[StatsRequirementOut]
+    sampled: int
+    sample_capped: bool
+
+
+class CronOut(BaseModel):
+    postings: int
+    read: int
+    notified: int
+    detail: list[str]
+
+
+@app.get("/api/postings/{slug}/stats", response_model=StatsOut)
+def vacancy_stats(
+    slug: str, admin: auth.AdminUser = Depends(require_admin)
+) -> StatsOut:
+    """What this vacancy's applications add up to, including what nobody meets."""
+    backend = get_backend()
+    posting = _require_posting(slug)
+    computed = stats_module.summarize(posting, backend.applications(slug), backend)
+    return StatsOut(
+        total=computed.total,
+        read=computed.read,
+        pending=computed.pending,
+        unreadable=computed.unreadable,
+        by_tier=computed.by_tier,
+        by_decision=computed.by_decision,
+        average_percent=computed.average_percent,
+        median_percent=computed.median_percent,
+        per_day=[[day, count] for day, count in computed.per_day],
+        hardest=[
+            StatsRequirementOut(
+                requirement=d.requirement, kind=d.kind, importance=d.importance,
+                met=d.met, partial=d.partial, total=d.total, percent=d.percent,
+            )
+            for d in computed.hardest
+        ],
+        sampled=computed.sampled,
+        sample_capped=computed.sample_capped,
+    )
+
+
+@app.get("/api/mail/status")
+def mail_status(admin: auth.AdminUser = Depends(require_admin)) -> dict:
+    """Whether email is set up, so the dashboard can say so rather than guess."""
+    return notify.status()
+
+
+def _cron_authorised(header: str | None) -> bool:
+    """Vercel's scheduler sends the project's CRON_SECRET as a bearer token."""
+    secret = (os.getenv("CRON_SECRET") or "").strip()
+    if not secret:
+        return False
+    return bool(header) and header.strip() == f"Bearer {secret}"
+
+
+@app.post("/api/cron/intake", response_model=CronOut)
+def cron_intake(authorization: str | None = Header(default=None)) -> CronOut:
+    """Read whatever has arrived, then tell the hiring team once.
+
+    Runs on a schedule so applications do not sit unread until somebody happens
+    to open the dashboard, and so the team hears about them without getting one
+    email per applicant - a vacancy that attracts two hundred people would
+    otherwise send two hundred, which is how a team learns to ignore them.
+
+    Not behind the Google sign-in: a scheduler has no Google account. It carries
+    CRON_SECRET instead, and with that unset the endpoint refuses outright
+    rather than standing open.
+    """
+    if not _cron_authorised(authorization):
+        raise HTTPException(
+            401,
+            "This endpoint is for the scheduler. Set CRON_SECRET in the "
+            "deployment and send it as a bearer token.",
+        )
+
+    backend = get_backend()
+    detail: list[str] = []
+    total_read = 0
+    notified = 0
+
+    for posting in backend.postings():
+        if not posting.is_open:
+            continue
+        fresh = intake.read_pending(backend, posting)
+        if not fresh:
+            continue
+        total_read += len(fresh)
+        detail.append(f"{posting.slug}: read {len(fresh)}")
+
+        results = notify.new_applications_digest(posting, fresh)
+        sent = sum(1 for r in results if r.ok)
+        notified += sent
+        if results:
+            detail.append(f"{posting.slug}: digest {sent}/{len(results)}")
+
+    return CronOut(
+        postings=len(backend.postings()), read=total_read,
+        notified=notified, detail=detail,
     )

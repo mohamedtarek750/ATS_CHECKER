@@ -572,6 +572,49 @@ export async function submitApplication(
   );
 }
 
+export interface RequirementDemand {
+  requirement: string;
+  kind: string;
+  importance: Importance;
+  met: number;
+  partial: number;
+  total: number;
+  percent: number;
+}
+
+export interface VacancyStats {
+  total: number;
+  read: number;
+  pending: number;
+  unreadable: number;
+  by_tier: Record<string, number>;
+  by_decision: Record<string, number>;
+  average_percent: number;
+  median_percent: number;
+  /** [day, count], oldest first, only days that had applications. */
+  per_day: [string, number][];
+  /** Fewest-met first. The top of this list is what to question in the advert. */
+  hardest: RequirementDemand[];
+  sampled: number;
+  sample_capped: boolean;
+}
+
+export interface MailStatus {
+  configured: boolean;
+  from: string;
+  hr_recipients: number;
+}
+
+export async function vacancyStats(slug: string): Promise<VacancyStats> {
+  return unwrapAdmin<VacancyStats>(
+    await adminFetch(`/api/postings/${slug}/stats`)
+  );
+}
+
+export async function mailStatus(): Promise<MailStatus> {
+  return unwrapAdmin<MailStatus>(await adminFetch("/api/mail/status"));
+}
+
 export async function listApplications(slug: string): Promise<ApplicationsResponse> {
   return unwrapAdmin<ApplicationsResponse>(
     await adminFetch(`/api/postings/${slug}/applications`)

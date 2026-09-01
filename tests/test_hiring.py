@@ -519,6 +519,36 @@ def test_a_decision_records_who_made_it():
     assert restored.decided_at.startswith("2026-09-01")
 
 
+def test_the_scheduled_read_is_not_an_open_endpoint():
+    """It cannot sit behind the Google sign-in - a scheduler has no account -
+    so it carries a shared secret, and refuses outright when there isn't one."""
+    client = admin_client()
+
+    with environment(ATS_AUTH="off", CRON_SECRET=None):
+        # No secret configured: shut, rather than open to anyone who finds it.
+        assert client.post("/api/cron/intake").status_code == 401
+
+    with environment(ATS_AUTH="off", CRON_SECRET="topsecret"):
+        assert client.post("/api/cron/intake").status_code == 401
+        assert client.post(
+            "/api/cron/intake", headers={"Authorization": "Bearer wrong"}
+        ).status_code == 401
+        assert client.post(
+            "/api/cron/intake", headers={"Authorization": "Bearer topsecret"}
+        ).status_code == 200
+
+
+def test_the_statistics_panel_needs_a_sign_in_like_everything_else():
+    client = admin_client()
+    with environment(
+        ATS_AUTH="on",
+        ATS_ADMIN_EMAILS="hr@company.com",
+        GOOGLE_OAUTH_CLIENT_ID="123.apps.googleusercontent.com",
+    ):
+        assert client.get("/api/postings/data-analyst/stats").status_code == 401
+        assert client.get("/api/mail/status").status_code == 401
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):

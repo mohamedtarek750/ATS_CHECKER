@@ -4,6 +4,7 @@ import Link from "next/link";
 import { use, useCallback, useEffect, useState } from "react";
 import { CandidateDetail } from "@/components/CandidateDetail";
 import { Note, Score, Stat } from "@/components/Shell";
+import { StatsPanel } from "@/components/StatsPanel";
 import { downloadCSV, toCSV } from "@/lib/csv";
 import {
   DECISIONS,
@@ -39,6 +40,7 @@ export default function JobDashboard({
   const [showRejected, setShowRejected] = useState(false);
   const [decisionFilter, setDecisionFilter] = useState<DecisionValue | "all">("all");
   const [search, setSearch] = useState("");
+  const [showStats, setShowStats] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -174,6 +176,27 @@ export default function JobDashboard({
       )}
 
       {data.results.length > 0 && (
+        <div className="card px-4 py-3">
+          <button
+            className="flex w-full items-center justify-between text-left"
+            onClick={() => setShowStats(!showStats)}
+          >
+            <span className="text-sm font-medium">
+              How this vacancy is doing
+            </span>
+            <span className={`text-muted transition ${showStats ? "rotate-90" : ""}`}>
+              &rsaquo;
+            </span>
+          </button>
+          {showStats && (
+            <div className="mt-4 border-t pt-4">
+              <StatsPanel slug={slug} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {data.results.length > 0 && (
         <div className="card space-y-3 px-4 py-3">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs uppercase tracking-wide text-muted">
@@ -241,7 +264,16 @@ export default function JobDashboard({
       )}
 
       {data.results.length > 0 && visible.length === 0 && (
-        <Note>Nobody matches that. Clear the filter to see everyone again.</Note>
+        <Note>
+          {filtering
+            ? "Nobody matches that. Clear the filter to see everyone again."
+            : /* Not a filter - every applicant is below the bar, and the
+                 rejected are folded away by default. Telling somebody to clear
+                 a filter they never set sends them looking for a control that
+                 is not there. */
+              `Nobody cleared the bar. All ${data.results.length} applications ` +
+              "are below 70%, and are folded away below."}
+        </Note>
       )}
 
       {data.results.length === 0 && (
