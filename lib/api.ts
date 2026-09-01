@@ -398,6 +398,7 @@ export interface ApplicationRow {
   tier: string;
   tier_label: string;
   reason: string;
+  engine_version: string;
   decision: DecisionValue;
   decision_label: string;
   decided_by: string;

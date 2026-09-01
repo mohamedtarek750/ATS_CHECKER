@@ -4,6 +4,7 @@ import Link from "next/link";
 import { use, useCallback, useEffect, useState } from "react";
 import { CandidateDetail } from "@/components/CandidateDetail";
 import { Note, Score, Stat } from "@/components/Shell";
+import { downloadCSV, toCSV } from "@/lib/csv";
 import {
   DECISIONS,
   DECISION_TONE,
@@ -36,6 +37,8 @@ export default function JobDashboard({
   const [signedOut, setSignedOut] = useState(false);
   const [reading, setReading] = useState(false);
   const [showRejected, setShowRejected] = useState(false);
+  const [decisionFilter, setDecisionFilter] = useState<DecisionValue | "all">("all");
+  const [search, setSearch] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -94,10 +97,60 @@ export default function JobDashboard({
 
   const { posting, counts } = data;
   const unread = counts.pending ?? 0;
+
+  // How many sit at each stage of the human process, which is a different
+  // question from how the engine scored them.
+  const funnel: Record<string, number> = {};
+  for (const row of data.results) {
+    funnel[row.decision] = (funnel[row.decision] ?? 0) + 1;
+  }
+
+  const needle = search.trim().toLowerCase();
+  const matchesSearch = (r: ApplicationRow) =>
+    !needle ||
+    r.full_name.toLowerCase().includes(needle) ||
+    r.email.toLowerCase().includes(needle) ||
+    r.phone.toLowerCase().includes(needle);
+
   const visible = data.results.filter(
-    (r) => showRejected || !(r.status === "read" && r.tier === "rejected")
+    (r) =>
+      matchesSearch(r) &&
+      (decisionFilter === "all" || r.decision === decisionFilter) &&
+      // The rejected are folded away by default, unless a filter asked for
+      // them specifically - hiding what somebody just searched for would be
+      // the system arguing with them.
+      (showRejected ||
+        decisionFilter !== "all" ||
+        !!needle ||
+        !(r.status === "read" && r.tier === "rejected"))
   );
   const hidden = data.results.length - visible.length;
+  const filtering = decisionFilter !== "all" || !!needle;
+
+  /** Exactly what is on screen, in the order it is on screen. */
+  function exportVisible() {
+    const rows = visible.map((r) => [
+      r.full_name, r.email, r.phone,
+      r.status === "read" ? r.percent : "",
+      r.status === "read" ? r.tier_label : statusWord(r),
+      r.required_percent, r.preferred_percent,
+      r.decision_label, r.decided_by, r.decided_at,
+      r.note, r.reason,
+      r.applied_at, r.cv_filename, r.engine_version,
+    ]);
+    downloadCSV(
+      `${posting.slug}_applicants.csv`,
+      toCSV(
+        [
+          "name", "email", "phone", "percent", "outcome",
+          "required_percent", "preferred_percent",
+          "decision", "decided_by", "decided_at",
+          "note", "reason", "applied_at", "cv_file", "engine_version",
+        ],
+        rows
+      )
+    );
+  }
 
   return (
     <Frame slug={slug} title={posting.title}>
@@ -120,6 +173,77 @@ export default function JobDashboard({
         </div>
       )}
 
+      {data.results.length > 0 && (
+        <div className="card space-y-3 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs uppercase tracking-wide text-muted">
+              Stage
+            </span>
+            <button
+              onClick={() => setDecisionFilter("all")}
+              className={`chip ${
+                decisionFilter === "all"
+                  ? "bg-accent text-accent-ink"
+                  : "raised text-muted hover:text-ink"
+              }`}
+            >
+              All {data.results.length}
+            </button>
+            {DECISIONS.filter((d) => funnel[d]).map((value) => (
+              <button
+                key={value}
+                onClick={() =>
+                  setDecisionFilter(decisionFilter === value ? "all" : value)
+                }
+                className={`chip ${
+                  decisionFilter === value
+                    ? "bg-accent text-accent-ink"
+                    : DECISION_TONE[value]
+                }`}
+              >
+                {value === "new" ? "New" : value[0].toUpperCase() + value.slice(1)}{" "}
+                {funnel[value]}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              className="field min-w-0 flex-1"
+              placeholder="Search name, email or phone…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <button
+              className="btn-ghost shrink-0"
+              onClick={exportVisible}
+              disabled={visible.length === 0}
+            >
+              Export {filtering ? `these ${visible.length}` : "CSV"}
+            </button>
+          </div>
+
+          {filtering && (
+            <p className="text-xs text-muted">
+              Showing {visible.length} of {data.results.length}.{" "}
+              <button
+                className="underline"
+                onClick={() => {
+                  setDecisionFilter("all");
+                  setSearch("");
+                }}
+              >
+                Clear
+              </button>
+            </p>
+          )}
+        </div>
+      )}
+
+      {data.results.length > 0 && visible.length === 0 && (
+        <Note>Nobody matches that. Clear the filter to see everyone again.</Note>
+      )}
+
       {data.results.length === 0 && (
         <Note>
           Nobody has applied yet. Share the link from the{" "}
@@ -136,7 +260,7 @@ export default function JobDashboard({
         ))}
       </div>
 
-      {hidden > 0 && (
+      {hidden > 0 && !filtering && (
         <label className="flex items-center gap-2 text-sm text-muted">
           <input
             type="checkbox"

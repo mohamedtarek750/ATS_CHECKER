@@ -557,6 +557,8 @@ class ApplicationOut(BaseModel):
     tier: str
     tier_label: str
     reason: str
+    #: Which version of the matching rules produced the score above.
+    engine_version: str
     decision: str
     decision_label: str
     decided_by: str
@@ -615,6 +617,7 @@ def _application_out(row) -> ApplicationOut:
         tier=row.tier,
         tier_label=rank.TIER_LABEL.get(row.tier, "Not read yet"),
         reason=row.reason,
+        engine_version=row.engine_version,
         decision=row.decision,
         decision_label=postings.DECISION_LABEL.get(row.decision, row.decision),
         decided_by=row.decided_by,

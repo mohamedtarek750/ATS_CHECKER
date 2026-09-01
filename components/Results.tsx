@@ -12,6 +12,7 @@ import {
   type RequirementResult,
 } from "@/lib/api";
 import { Note, Score, Stat } from "./Shell";
+import { downloadCSV, toCSV as csv } from "@/lib/csv";
 import { TemplateBlock } from "./TemplatePanel";
 
 const TIER_CHIP: Record<string, string> = {
@@ -262,23 +263,25 @@ function Row({ entry, fileUrl }: { entry: Ranked; fileUrl?: string }) {
 }
 
 function toCSV(response: MatchResponse): string {
-  const head = [
-    "percent", "tier", "name", "headline", "years", "must_met", "must_total",
-    "meets", "missing", "email", "phone", "possibly_ai", "file",
-  ];
-  const rows = response.results.map((entry) => [
-    entry.percent, entry.tier_label, entry.name, entry.headline, entry.years,
-    entry.must_met, entry.must_total,
-    entry.requirements.filter((r) => r.status === "met").map((r) => r.requirement).join(" | "),
-    entry.requirements
-      .filter((r) => r.importance === "must_have" && r.status !== "met")
-      .map((r) => r.requirement)
-      .join(" | "),
-    entry.email, entry.phone, entry.possibly_ai ? "yes" : "", entry.filename,
-  ]);
-  return [head, ...rows]
-    .map((row) => row.map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(","))
-    .join("\n");
+  return csv(
+    [
+      "percent", "tier", "name", "headline", "years", "must_met", "must_total",
+      "meets", "missing", "email", "phone", "possibly_ai", "file",
+    ],
+    response.results.map((entry) => [
+      entry.percent, entry.tier_label, entry.name, entry.headline, entry.years,
+      entry.must_met, entry.must_total,
+      entry.requirements
+        .filter((r) => r.status === "met")
+        .map((r) => r.requirement)
+        .join(" | "),
+      entry.requirements
+        .filter((r) => r.importance === "must_have" && r.status !== "met")
+        .map((r) => r.requirement)
+        .join(" | "),
+      entry.email, entry.phone, entry.possibly_ai ? "yes" : "", entry.filename,
+    ])
+  );
 }
 
 export default function Results({
@@ -300,13 +303,10 @@ export default function Results({
   ).length;
 
   function download() {
-    const blob = new Blob([toCSV(data)], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${data.job_title.replace(/[^A-Za-z0-9]+/g, "_")}_ranking.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+    downloadCSV(
+      `${data.job_title.replace(/[^A-Za-z0-9]+/g, "_")}_ranking.csv`,
+      toCSV(data)
+    );
   }
 
   return (
