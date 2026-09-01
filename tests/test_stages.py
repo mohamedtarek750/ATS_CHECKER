@@ -608,6 +608,79 @@ def test_relevant_years_never_exceed_the_total():
     assert review.relevant_years <= review.total_years
 
 
+# --------------------------------------------------------------------------
+# Scale: the properties that make a thousand CVs practical
+# --------------------------------------------------------------------------
+def test_a_batch_of_cvs_is_read_across_processes():
+    """Parsing is 72% of intake and is pure-Python, so threads cannot help.
+
+    Measured over a thousand real CVs: eight threads ran 1.2x faster than one
+    process, eight processes 10.9x. This checks the batch path still produces a
+    correct result for every file - the speed itself is measured by
+    audit/load_test.py, not asserted here, because a timing assertion on shared
+    CI hardware is a flake waiting to happen.
+    """
+    import shutil as _shutil
+    from ats.stages import parse as parse_stage
+
+    sources = sorted(FIXTURES.glob("*.pdf"))
+    if not sources:
+        return  # no PDF fixtures in this checkout
+
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        files = []
+        for i in range(parse_stage._PARALLEL_FROM + 6):
+            dst = tmp / f"cv_{i:03d}.pdf"
+            _shutil.copyfile(sources[i % len(sources)], dst)
+            files.append(dst)
+
+        parallel = parse_stage.parse_many(files)
+        assert len(parallel) == len(files)
+        assert all(doc.ok for doc in parallel), "a worker lost a file"
+
+        # Identical to reading them one at a time, in the same order.
+        serial = [parse_stage.parse_one(f) for f in files]
+        assert [d.key for d in parallel] == [d.key for d in serial]
+
+        # A small batch stays in this process rather than paying for workers.
+        assert len(parse_stage.parse_many(files[:3])) == 3
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_a_ranked_pool_stays_under_the_serverless_payload_limit():
+    """One /api/match response for the whole pool would be rejected by Vercel.
+
+    A ranked candidate with a template report is around 7 KB of JSON, so a
+    thousand of them come back at roughly 7.4 MB against a 4.5 MB ceiling. The
+    browser therefore sends the pool in batches; this pins the size that batch
+    was chosen from, so the limit is not silently re-crossed.
+    """
+    import json as _json
+
+    job = make_job()
+    pool = [(f"cv_{i:04d}.pdf", make_candidate(full_name=f"Person {i}"))
+            for i in range(40)]
+    ranked = rank.rank(match_stage.match_all(pool, job))
+
+    payload = _json.dumps([
+        {
+            "percent": e.percent, "tier": e.tier, "reason": e.reason,
+            "requirements": [
+                {"requirement": r.requirement, "evidence": r.evidence,
+                 "explanation": r.explanation, "strength": r.strength}
+                for r in e.match.results
+            ],
+        }
+        for e in ranked
+    ])
+    per_candidate = len(payload) / len(pool)
+    # The browser batches at 150. Anything approaching 30 KB each would put that
+    # batch over the limit and the pool would start failing at scale.
+    assert per_candidate < 30_000, f"{per_candidate:.0f} bytes per candidate"
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):

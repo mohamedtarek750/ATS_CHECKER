@@ -6,6 +6,7 @@ import Results from "@/components/Results";
 import { Note, Step } from "@/components/Shell";
 import Uploads, { type UploadRow } from "@/components/Uploads";
 import {
+  MATCH_BATCH,
   health,
   matchAll,
   type Health,
@@ -19,6 +20,7 @@ export default function Page() {
   const [results, setResults] = useState<MatchResponse | null>(null);
   const [server, setServer] = useState<Health | null>(null);
   const [busy, setBusy] = useState(false);
+  const [matched, setMatched] = useState({ done: 0, total: 0 });
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -54,6 +56,7 @@ export default function Page() {
     if (!job) return;
     setBusy(true);
     setError("");
+    setMatched({ done: 0, total: ready.length });
     try {
       setResults(
         await matchAll(
@@ -61,7 +64,8 @@ export default function Page() {
           ready.map((row) => ({
             filename: row.parsed!.filename,
             profile: row.parsed!.profile,
-          }))
+          })),
+          (done, total) => setMatched({ done, total })
         )
       );
     } catch (e) {
@@ -141,12 +145,17 @@ export default function Page() {
                 <div className="space-y-2">
                   <button className="btn-primary" onClick={run} disabled={busy}>
                     {busy
-                      ? "Matching…"
+                      ? matched.total > MATCH_BATCH
+                        ? `Matching ${matched.done} of ${matched.total}…`
+                        : "Matching…"
                       : `Match ${ready.length} candidate${ready.length === 1 ? "" : "s"}`}
                   </button>
                   <p className="text-xs text-muted">
-                    Matching is pure computation — no model call, so it is instant
-                    however many CVs you added.
+                    Matching is pure computation — no model call.
+                    {ready.length > MATCH_BATCH &&
+                      ` Sent in batches of ${MATCH_BATCH}, because one request
+                        carrying every candidate would exceed what the server may
+                        return.`}
                   </p>
                 </div>
               )}

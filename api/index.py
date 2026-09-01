@@ -227,6 +227,9 @@ class RankedOut(BaseModel):
     preferred_percent: int = 0
     tier: str
     tier_label: str
+    #: The ordering score. Exposed so a pool sent in several batches can be
+    #: merged back into exactly the order one request would have returned.
+    score: float = 0.0
     reason: str
     experience: ExperienceOut
     must_met: int
@@ -390,6 +393,7 @@ def match(body: MatchRequest) -> MatchResponse:
                 preferred_percent=entry.preferred_percent,
                 tier=entry.tier,
                 tier_label=rank.TIER_LABEL[entry.tier],
+                score=entry.score,
                 reason=entry.reason,
                 must_met=entry.match.must_met,
                 must_total=entry.match.must_total,

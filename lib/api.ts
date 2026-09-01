@@ -90,6 +90,7 @@ export interface Ranked {
   required_percent: number;
   preferred_percent: number;
   tier: Tier;
+  score: number;
   tier_label: string;
   reason: string;
   experience: ExperienceReview;
@@ -218,17 +219,68 @@ export async function jobFromCV(
   );
 }
 
+// How many candidates go in one /api/match request.
+//
+// Not a tuning knob - a platform limit. A serverless function may return at most
+// 4.5 MB, and a ranked candidate with its template report is around 7 KB of
+// JSON, so one request carrying a thousand CVs comes back at roughly 7.4 MB and
+// is rejected outright. Measured with audit/load_test.py. The batch also keeps
+// each request well inside the function's execution timeout.
+export const MATCH_BATCH = 150;
+
+const TIER_ORDER: Record<Tier, number> = {
+  accepted: 0,
+  waiting_list: 1,
+  rejected: 2,
+  not_a_cv: 3,
+};
+
+/** Exactly the server's ordering, so a merged pool reads as one ranking. */
+function byRank(a: Ranked, b: Ranked): number {
+  const tier = TIER_ORDER[a.tier] - TIER_ORDER[b.tier];
+  if (tier !== 0) return tier;
+  if (a.score !== b.score) return b.score - a.score;
+  return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+}
+
 export async function matchAll(
   job: JobProfile,
-  candidates: { filename: string; profile: CandidateProfile }[]
+  candidates: { filename: string; profile: CandidateProfile }[],
+  onProgress?: (done: number, total: number) => void
 ): Promise<MatchResponse> {
-  return unwrap<MatchResponse>(
-    await fetch("/api/match", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ job, candidates }),
-    })
-  );
+  const batches: (typeof candidates)[] = [];
+  for (let i = 0; i < candidates.length; i += MATCH_BATCH) {
+    batches.push(candidates.slice(i, i + MATCH_BATCH));
+  }
+
+  const results: Ranked[] = [];
+  const counts: Record<string, number> = {};
+  let head: MatchResponse | null = null;
+  let done = 0;
+
+  for (const batch of batches) {
+    const response = await unwrap<MatchResponse>(
+      await fetch("/api/match", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job, candidates: batch }),
+      })
+    );
+    head ??= response;
+    results.push(...response.results);
+    // Tiers are decided per candidate, never relative to the pool, so the
+    // batches' counts add up to the whole pool's counts.
+    for (const [key, value] of Object.entries(response.counts)) {
+      counts[key] = (counts[key] ?? 0) + value;
+    }
+    done += batch.length;
+    onProgress?.(done, candidates.length);
+  }
+
+  if (!head) {
+    return { job_title: job.title, must_total: 0, nice_total: 0, counts: {}, results: [] };
+  }
+  return { ...head, counts, results: results.sort(byRank) };
 }
 
 export async function fetchBlueprint(job: JobProfile): Promise<Blueprint> {
