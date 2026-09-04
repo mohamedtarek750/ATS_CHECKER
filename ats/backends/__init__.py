@@ -1,8 +1,17 @@
 """Choosing where applications are kept.
 
 Local files by default, so the app runs with no accounts and no credentials.
-Set ATS_BACKEND=sheets to keep everything in a Google Sheet and Drive folder
-instead, which is what a recruiter who wants to open the data themselves gets.
+Two ways to reach a Google Sheet instead, and the difference is only in how the
+door is opened:
+
+  ATS_BACKEND=script   through an Apps Script the sheet runs itself. No cloud
+                       project, no service account, no API key - the script
+                       already has the owner's access. Two settings, and the
+                       right choice for a prototype.
+  ATS_BACKEND=sheets   through the Google Sheets API, which needs a service
+                       account and a key file. More setup, and the one to use
+                       once real applicants are in it, because the endpoint is
+                       not open to whoever holds a URL.
 """
 
 from __future__ import annotations
@@ -36,6 +45,10 @@ def backend_name() -> str:
 
 def _build():
     name = backend_name()
+    if name in {"script", "apps_script", "gs"}:
+        from .script import ScriptBackend
+
+        return ScriptBackend()
     if name in {"sheets", "google"}:
         from .sheets import SheetsBackend
 
