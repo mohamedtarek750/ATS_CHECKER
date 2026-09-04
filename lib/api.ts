@@ -563,6 +563,21 @@ export async function publicPosting(slug: string): Promise<PublicPosting> {
   return unwrap<PublicPosting>(await fetch(`/api/public/postings/${slug}`));
 }
 
+/**
+ * Ask the server to read an application that has just been submitted.
+ *
+ * Deliberately not awaited by the applicant: their CV is already stored and
+ * their receipt is already earned, so a slow or failed read must not turn into
+ * an error on their screen. If it does fail, the scheduled sweep picks it up.
+ */
+export function requestRead(applicationId: string): void {
+  void fetch(`/api/public/applications/${applicationId}/read`, {
+    method: "POST",
+  }).catch(() => {
+    /* the daily sweep is the backstop */
+  });
+}
+
 export async function submitApplication(
   slug: string,
   fields: { full_name: string; email: string; phone: string },

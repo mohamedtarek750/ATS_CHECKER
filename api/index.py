@@ -1002,6 +1002,39 @@ def _cron_authorised(header: str | None) -> bool:
     return bool(header) and header.strip() == f"Bearer {secret}"
 
 
+@app.post("/api/public/applications/{application_id}/read", response_model=ReceiptOut)
+def read_one_application(application_id: str) -> ReceiptOut:
+    """Read the application that was just submitted.
+
+    Public, because the person who just applied has no account and never will.
+    That is safe here for reasons worth stating rather than assuming:
+
+      * It only ever acts on the row whose id is given, and only while that row
+        is still `pending`. Calling it twice does nothing the second time.
+      * The id is a random 12-hex value handed to that applicant seconds ago,
+        so it is not something to work through.
+      * It returns a receipt, never the score, the tier or any of the reasoning.
+        An applicant learns nothing from it that they did not already know.
+
+    The alternative was leaving the CV to the scheduled sweep, which on this
+    plan runs once a day - so a recruiter opening the dashboard an hour after a
+    vacancy went live would find a list of applications nobody had read.
+    """
+    backend = get_backend()
+    row = backend.application(application_id)
+    if row is None:
+        raise HTTPException(404, "No such application.")
+    if row.status != "pending":
+        return ReceiptOut(id=row.id, full_name=row.full_name, status=row.status)
+
+    posting = backend.posting(row.job_slug)
+    if posting is None:
+        raise HTTPException(404, "That vacancy is no longer open.")
+
+    row = intake.read(backend, posting, row)
+    return ReceiptOut(id=row.id, full_name=row.full_name, status=row.status)
+
+
 @app.post("/api/cron/intake", response_model=CronOut)
 def cron_intake(authorization: str | None = Header(default=None)) -> CronOut:
     """Read whatever has arrived, then tell the hiring team once.

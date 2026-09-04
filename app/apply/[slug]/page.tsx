@@ -5,6 +5,7 @@ import { use } from "react";
 import { Note } from "@/components/Shell";
 import {
   publicPosting,
+  requestRead,
   submitApplication,
   type PublicPosting,
 } from "@/lib/api";
@@ -52,8 +53,13 @@ export default function ApplyPage({
     setBusy(true);
     setError("");
     try {
-      await submitApplication(slug, { full_name: fullName, email, phone }, file);
+      const receipt = await submitApplication(
+        slug, { full_name: fullName, email, phone }, file
+      );
       setSent(true);
+      // The CV is stored and the receipt is given. Reading it happens after,
+      // and the applicant does not wait for it.
+      requestRead(receipt.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong. Try again.");
     }

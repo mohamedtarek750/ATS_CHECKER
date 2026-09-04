@@ -603,6 +603,59 @@ def test_the_vacancy_list_splits_applicants_without_counting_anyone_twice():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_an_applicant_can_ask_for_their_own_cv_to_be_read():
+    """Public on purpose: the person who applied has no account.
+
+    Safe because it only touches the row its id names, only while that row is
+    pending, and returns a receipt rather than a score. The alternative was
+    leaving every CV to the scheduled sweep, which on the Hobby plan runs once
+    a day - so a recruiter opening the dashboard an hour after a vacancy went
+    live would find nothing read.
+    """
+    client = admin_client()
+    with environment(ATS_AUTH="off"):
+        cv = (ROOT / "samples" / "01_data_analyst_omar.pdf").read_bytes()
+        job = make_job()
+        slug = client.post(
+            "/api/postings", json={"job": json.loads(job.model_dump_json())}
+        ).json()["slug"]
+
+        receipt = client.post(
+            f"/api/public/postings/{slug}/apply",
+            data={"full_name": "Omar", "email": "o@e.com", "phone": ""},
+            files={"file": ("omar.pdf", cv, "application/pdf")},
+        ).json()
+        assert receipt["status"] == "pending"
+
+        first = client.post(f"/api/public/applications/{receipt['id']}/read").json()
+        assert first["status"] == "read"
+
+        # Calling it again does nothing, so it cannot be used to make work.
+        again = client.post(f"/api/public/applications/{receipt['id']}/read").json()
+        assert again["status"] == "read"
+
+        # And it tells the applicant nothing about how they scored.
+        assert set(first) == {"id", "full_name", "status"}
+
+        assert client.post(
+            "/api/public/applications/deadbeef1234/read"
+        ).status_code == 404
+
+
+def test_the_scheduled_sweep_fits_the_plan_it_deploys_to():
+    """A cron more frequent than daily does not degrade on Hobby - Vercel
+    refuses the deployment outright, which is how five commits sat undeployed."""
+    import json as _json
+
+    config = _json.loads((ROOT / "vercel.json").read_text(encoding="utf-8"))
+    for entry in config.get("crons", []):
+        minute, hour, *rest = entry["schedule"].split()
+        assert minute != "*", f"{entry['schedule']} runs every minute"
+        assert hour != "*", (
+            f"{entry['schedule']} runs hourly, which Hobby rejects at deploy time"
+        )
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):
