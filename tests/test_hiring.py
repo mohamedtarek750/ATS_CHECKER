@@ -874,6 +874,37 @@ def test_a_real_vacancy_cannot_take_the_reserved_slug():
     assert postings.slugify("Data Analyst") == "data-analyst"
 
 
+def test_a_storage_problem_says_what_is_wrong_instead_of_returning_500():
+    """These messages name the setting that is missing. Letting the exception
+    escape produced a bare 500 and a stack trace in a log nobody reads, which
+    is how a five-second configuration fix becomes an afternoon."""
+    from ats import backends
+
+    client = admin_client(fresh=False)
+    try:
+        with environment(ATS_AUTH="off", ATS_BACKEND="script", ATS_SCRIPT_URL=None):
+            backends.reset()
+            response = client.get("/api/postings")
+            assert response.status_code == 503, "a bare 500 tells nobody anything"
+            assert "ATS_SCRIPT_URL" in response.json()["detail"]
+
+            # And it is visible without signing in, which is the state somebody
+            # is in when the dashboard will not open for them.
+            health = client.get("/api/health").json()
+            assert health["storage_ok"] is False
+            assert "ATS_SCRIPT_URL" in health["storage_detail"]
+
+        with environment(
+            ATS_AUTH="off", ATS_BACKEND="script",
+            ATS_SCRIPT_URL="https://docs.google.com/spreadsheets/d/e/2PACX/pubhtml",
+        ):
+            backends.reset()
+            detail = client.get("/api/postings").json()["detail"]
+            assert "/exec" in detail, "the published-link mistake is not named"
+    finally:
+        backends.reset()
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):

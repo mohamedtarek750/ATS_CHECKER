@@ -19,6 +19,16 @@ from __future__ import annotations
 import os
 import threading
 
+
+class BackendError(RuntimeError):
+    """Storage could not be reached or is not configured.
+
+    Carries a message written for whoever has to fix it - which is the whole
+    point of having it: a misconfigured backend is a deployment that was never
+    finished, and answering it with a bare 500 tells nobody anything.
+    """
+
+
 _lock = threading.Lock()
 _backend = None
 

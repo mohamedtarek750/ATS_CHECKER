@@ -45,6 +45,7 @@ import json
 import os
 import threading
 
+from . import BackendError
 from ..job_profile import JobProfile
 from ..models import CandidateProfile
 from ..postings import Application, JobPosting
@@ -73,7 +74,7 @@ APPLICATION_COLUMNS = [
 ]
 
 
-class SheetsError(RuntimeError):
+class SheetsError(BackendError):
     """Configuration or access problem, said plainly enough to act on."""
 
 

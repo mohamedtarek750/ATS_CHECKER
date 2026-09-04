@@ -44,7 +44,7 @@ from ats.stages import from_cv, jobspec, offline, parse, rank  # noqa: E402
 from ats.stages import template_match as template  # noqa: E402
 from ats.stages import match as match_stage  # noqa: E402
 from ats import intake, postings  # noqa: E402
-from ats.backends import get_backend  # noqa: E402
+from ats.backends import BackendError, get_backend  # noqa: E402
 from ats import auth, injection, notify, stats as stats_module  # noqa: E402
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
@@ -56,6 +56,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(BackendError)
+def storage_unavailable(request, exc: BackendError):
+    """A backend that cannot be reached is a 503 with the reason attached.
+
+    These messages name the setting that is missing or the deployment switch
+    that is wrong. Letting the exception escape instead produced a bare 500 and
+    a stack trace in a log nobody was reading, which is how a five-second
+    configuration fix turns into an afternoon.
+    """
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(status_code=503, content={"detail": str(exc)})
 
 
 def has_model_key() -> bool:
@@ -348,6 +362,29 @@ def health() -> dict:
         # Reading an advert always needs a model, whatever CVs are read with.
         "can_read_jobs": keyed_provider() is not None,
         "job_model": keyed_provider(),
+        # Where applications are kept, and whether it is actually usable. A
+        # dashboard that will not open is almost always a storage setting, and
+        # without this there is nowhere to look but the function logs.
+        **_storage_health(),
+    }
+
+
+def _storage_health() -> dict:
+    """The storage backend's name, and the reason if it cannot be built."""
+    from ats.backends import backend_name
+
+    try:
+        backend = get_backend()
+    except BackendError as exc:
+        return {
+            "storage": backend_name(),
+            "storage_ok": False,
+            "storage_detail": str(exc),
+        }
+    return {
+        "storage": getattr(backend, "name", backend_name()),
+        "storage_ok": True,
+        "storage_detail": "",
     }
 
 

@@ -32,6 +32,7 @@ import os
 import urllib.error
 import urllib.request
 
+from . import BackendError
 from ..job_profile import JobProfile
 from ..models import CandidateProfile
 from ..postings import Application, JobPosting
@@ -40,7 +41,7 @@ from ..postings import Application, JobPosting
 TIMEOUT_SECONDS = 60
 
 
-class ScriptError(RuntimeError):
+class ScriptError(BackendError):
     """Configuration or transport problem, said plainly enough to act on."""
 
 
