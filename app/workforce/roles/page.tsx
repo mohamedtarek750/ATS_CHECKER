@@ -115,9 +115,9 @@ function Roles() {
       )}
 
       <p className="text-sm text-muted">
-        A gap here is a vacancy waiting to be opened.{" "}
+        A gap here is a job waiting to be advertised.{" "}
         <Link href="/admin" className="underline hover:text-ink">
-          Open one and share its application link →
+          Add it as a job and share its link →
         </Link>
       </p>
     </WorkforceShell>

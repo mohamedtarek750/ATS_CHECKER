@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import JobStep from "@/components/JobStep";
 import Results from "@/components/Results";
+import { AcudMark } from "@/components/AcudMark";
 import { Note, Step } from "@/components/Shell";
 import Uploads, { type UploadRow } from "@/components/Uploads";
 import {
@@ -77,16 +78,9 @@ export default function Page() {
 
   return (
     <div className="min-h-dvh">
-      <header className="sticky top-0 z-10 border-b bg-bg/85 backdrop-blur">
+      <header className="rule-gold sticky top-0 z-10 bg-bg/90 backdrop-blur">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-6 py-3.5">
-          <div className="min-w-0">
-            <h1 className="truncate text-[15px] font-semibold tracking-tight">
-              ACUD ATS
-            </h1>
-            <p className="truncate text-xs text-muted">
-              Read each CV once, match it against any vacancy, see every reason
-            </p>
-          </div>
+          <AcudMark subtitle="Quick check" />
           <div className="flex shrink-0 items-center gap-3">
             {server && (
               <div className="hidden text-right text-xs text-muted lg:block">
@@ -172,7 +166,7 @@ export default function Page() {
                       ? matched.total > MATCH_BATCH
                         ? `Matching ${matched.done} of ${matched.total}…`
                         : "Matching…"
-                      : `Match ${ready.length} candidate${ready.length === 1 ? "" : "s"}`}
+                      : `Compare ${ready.length} CV${ready.length === 1 ? "" : "s"}`}
                   </button>
                   <p className="text-xs text-muted">
                     Matching is pure computation — no model call.

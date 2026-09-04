@@ -1,38 +1,50 @@
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* One palette, defined light-first, with the dark values swapping only the
+/* ACUD's own colours, read off acud.eg rather than guessed at: the deep navy
+   #0B1D3A the site is built on, and the gold #C9A962 it accents with. Poppins
+   is the face they set everything in.
+
+   One palette, defined light-first, with the dark values swapping only the
    tokens. Every colour used anywhere resolves through these, so nothing can be
    readable in one theme and invisible in the other. */
 :root {
   --bg: 255 255 255;
   --surface: 255 255 255;
-  --raised: 248 250 252;
-  --ink: 15 23 32;
-  --muted: 91 107 122;
+  --raised: 246 248 251;
+  --ink: 11 29 58;          /* ACUD navy, doubling as the text colour */
+  --muted: 100 116 139;
   --line: 226 232 240;
-  --accent: 17 24 39;
+  --accent: 11 29 58;       /* navy: primary buttons, active states */
   --accent-ink: 255 255 255;
+  --gold: 201 169 98;       /* ACUD gold: rules, marks, quiet emphasis */
+  --gold-wash: 250 246 237;
   --good: 12 122 77;
   --good-wash: 236 253 245;
   --warn: 146 101 0;
   --warn-wash: 255 251 235;
   --bad: 154 43 43;
   --bad-wash: 254 242 242;
-  --ring: 15 23 32;
+  --ring: 11 29 58;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: 11 15 20;
-    --surface: 17 23 30;
-    --raised: 22 29 38;
-    --ink: 232 238 245;
-    --muted: 141 157 173;
-    --line: 38 48 60;
-    --accent: 232 238 245;
-    --accent-ink: 11 15 20;
+    /* The navy IS the background here, which is how the site's own dark
+       sections read. Gold lifts a shade so it stays legible on it. */
+    --bg: 8 20 40;
+    --surface: 13 30 56;
+    --raised: 18 38 68;
+    --ink: 226 232 240;
+    --muted: 148 168 190;
+    --line: 30 54 88;
+    --accent: 201 169 98;   /* gold leads in the dark, as it does on acud.eg */
+    --accent-ink: 8 20 40;
+    --gold: 214 186 124;
+    --gold-wash: 32 40 34;
     --good: 74 209 149;
     --good-wash: 12 40 31;
     --warn: 235 179 62;
@@ -50,7 +62,21 @@
 body {
   background: rgb(var(--bg));
   color: rgb(var(--ink));
+  font-family: Poppins, ui-sans-serif, system-ui, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+/* The gold hairline the site uses to separate a header from what follows. */
+.rule-gold {
+  border-bottom: 2px solid rgb(var(--gold));
+}
+
+.text-gold {
+  color: rgb(var(--gold));
+}
+
+.bg-gold-wash {
+  background: rgb(var(--gold-wash));
 }
 
 @layer components {

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { use } from "react";
+import { AcudMark } from "@/components/AcudMark";
 import { Note } from "@/components/Shell";
 import {
   publicPosting,
@@ -116,7 +117,10 @@ export default function ApplyPage({
   return (
     <Centered>
       <div className="mb-6">
-        <p className="text-xs uppercase tracking-wide text-muted">Now hiring</p>
+        <div className="mb-6">
+          <AcudMark subtitle="Careers" />
+        </div>
+        <p className="text-xs uppercase tracking-wide text-gold">Now hiring</p>
         <h1 className="mt-1 text-2xl font-semibold tracking-tight">
           {posting.title}
         </h1>

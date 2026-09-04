@@ -133,7 +133,7 @@ export default function JobStep({
               onClick={fromText}
               disabled={busy || !text.trim() || !canReadJobs}
             >
-              {busy ? "Reading the advert…" : "Read the requirements"}
+              {busy ? "Reading…" : "Read this job"}
             </button>
             {canReadJobs && jobModel && (
               <span className="text-xs text-muted">using {jobModel}</span>
@@ -221,7 +221,7 @@ export default function JobStep({
               onClick={blueprint ? () => setBlueprint(null) : showBlueprint}
               disabled={busy}
             >
-              {blueprint ? "Hide ideal CV" : "Generate ideal CV template"}
+              {blueprint ? "Hide the ideal CV" : "Show the ideal CV"}
             </button>
           </div>
         </div>

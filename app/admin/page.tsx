@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { AcudMark } from "@/components/AcudMark";
 import { useEffect, useState } from "react";
 import JobStep from "@/components/JobStep";
 import { Note } from "@/components/Shell";
@@ -53,24 +54,17 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-dvh">
-      <header className="sticky top-0 z-10 border-b bg-bg/85 backdrop-blur">
+      <header className="rule-gold sticky top-0 z-10 bg-bg/90 backdrop-blur">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-6 py-3.5">
-          <div>
-            <h1 className="text-[15px] font-semibold tracking-tight">
-              ACUD ATS · Vacancies
-            </h1>
-            <p className="text-xs text-muted">
-              Open a role, share its link, read who applied
-            </p>
-          </div>
+          <AcudMark subtitle="Jobs and applicants" />
           <div className="flex shrink-0 gap-2">
             {/* The other half of the same system: workforce planning says how
                 many people a role is short, this is where they arrive. */}
             <Link href="/workforce" className="btn-ghost text-sm">
-              ← Workforce planning
+              Planning
             </Link>
             <Link href="/" className="btn-ghost text-sm">
-              One-off screening
+              Quick check
             </Link>
           </div>
         </div>
@@ -79,14 +73,14 @@ export default function AdminPage() {
       <main className="mx-auto max-w-4xl space-y-6 px-6 py-8">
         {!creating && (
           <button className="btn-primary" onClick={() => setCreating(true)}>
-            Open a vacancy
+            Add a job
           </button>
         )}
 
         {creating && (
           <div className="card space-y-4 px-5 py-5">
             <div className="flex items-center justify-between">
-              <h2 className="font-medium">Open a vacancy</h2>
+              <h2 className="font-medium">Add a job</h2>
               <button
                 className="btn-ghost text-sm"
                 onClick={() => {
@@ -112,7 +106,7 @@ export default function AdminPage() {
             {error && <Note tone="bad">{error}</Note>}
             {job && (
               <button className="btn-primary" onClick={open} disabled={busy}>
-                {busy ? "Opening…" : `Open "${job.title}" and get the link`}
+                {busy ? "Publishing…" : "Publish this job"}
               </button>
             )}
           </div>
@@ -122,7 +116,7 @@ export default function AdminPage() {
 
         {postings !== null && postings.length === 0 && !creating && (
           <Note>
-            No vacancies yet. Open one and you will get a link to share with
+            No jobs yet. Add one and you will get a link to share with
             candidates.
           </Note>
         )}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AcudMark } from "@/components/AcudMark";
 import { Note } from "./Shell";
 import {
   authStatus,
@@ -92,7 +93,9 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
     return (
       <Centered>
         <div className="card animate-rise px-6 py-7">
-          <h1 className="text-center text-lg font-semibold">ACUD ATS</h1>
+          <div className="mb-4 flex justify-center">
+            <AcudMark subtitle="Recruitment dashboard" />
+          </div>
           <p className="mt-1.5 mb-5 text-center text-sm text-muted">
             {status?.password
               ? "Sign in to open the dashboard."

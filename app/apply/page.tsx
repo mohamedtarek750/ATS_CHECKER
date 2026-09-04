@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { AcudMark } from "@/components/AcudMark";
 import { Note } from "@/components/Shell";
 import { requestRead, submitOpenApplication } from "@/lib/api";
 
@@ -70,7 +71,10 @@ export default function OpenApplyPage() {
   return (
     <Centered>
       <div className="mb-6">
-        <p className="text-xs uppercase tracking-wide text-muted">
+        <div className="mb-6">
+          <AcudMark subtitle="Careers" />
+        </div>
+        <p className="text-xs uppercase tracking-wide text-gold">
           Open application
         </p>
         <h1 className="mt-1 text-2xl font-semibold tracking-tight">

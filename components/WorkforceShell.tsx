@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { AcudMark } from "@/components/AcudMark";
 import { Note } from "./Shell";
 import { FORECAST } from "@/lib/workforce";
 
@@ -33,19 +34,12 @@ export function WorkforceShell({
 
   return (
     <div className="min-h-dvh">
-      <header className="sticky top-0 z-10 border-b bg-bg/85 backdrop-blur">
+      <header className="rule-gold sticky top-0 z-10 bg-bg/90 backdrop-blur">
         <div className="mx-auto max-w-5xl px-6 py-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0">
-              <h1 className="truncate text-[15px] font-semibold tracking-tight">
-                ACUD · Workforce planning
-              </h1>
-              <p className="truncate text-xs text-muted">
-                Where the gaps are, before anybody is hired
-              </p>
-            </div>
+            <AcudMark subtitle="Workforce planning" />
             <Link href="/admin" className="btn-ghost shrink-0 text-sm">
-              Vacancies &amp; applicants →
+              Jobs
             </Link>
           </div>
 

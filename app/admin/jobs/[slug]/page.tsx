@@ -171,7 +171,7 @@ export default function JobDashboard({
             arrived and {unread === 1 ? "has" : "have"} not been read yet.
           </p>
           <button className="btn-primary" onClick={readNew} disabled={reading}>
-            {reading ? "Reading…" : `Read ${unread > 25 ? "the next 25" : "them"}`}
+            {reading ? "Reading…" : `Read ${unread > 25 ? "the next 25 CVs" : "the new CVs"}`}
           </button>
         </div>
       )}
@@ -300,7 +300,7 @@ export default function JobDashboard({
             checked={showRejected}
             onChange={(e) => setShowRejected(e.target.checked)}
           />
-          Show the {hidden} rejected
+          Also show the {hidden} rejected
         </label>
       )}
     </Frame>
@@ -345,7 +345,7 @@ function AssignControl({
   if (vacancies !== null && vacancies.length === 0) {
     return (
       <Note>
-        Open a vacancy with some requirements and this CV can be measured
+        Add a job with some requirements and this CV can be measured
         against it.
       </Note>
     );
@@ -375,7 +375,7 @@ function AssignControl({
           onClick={assign}
           disabled={busy || !target}
         >
-          {busy ? "Measuring…" : "Move and score"}
+          {busy ? "Adding…" : "Add to this job"}
         </button>
       </div>
       {error && (
@@ -623,7 +623,7 @@ function Frame({
 }) {
   return (
     <div className="min-h-dvh">
-      <header className="sticky top-0 z-10 border-b bg-bg/85 backdrop-blur">
+      <header className="rule-gold sticky top-0 z-10 bg-bg/90 backdrop-blur">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-6 py-3.5">
           <div className="min-w-0">
             <h1 className="truncate text-[15px] font-semibold tracking-tight">

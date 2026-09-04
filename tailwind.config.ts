@@ -27,9 +27,15 @@ export default {
         "warn-wash": token("warn-wash"),
         bad: token("bad"),
         "bad-wash": token("bad-wash"),
+        // ACUD's gold. Used for rules, the mark, and quiet emphasis - never
+        // for a status, which would put it in competition with good/warn/bad.
+        gold: token("gold"),
+        "gold-wash": token("gold-wash"),
       },
       fontFamily: {
-        sans: ["ui-sans-serif", "system-ui", "-apple-system", "Segoe UI", "Inter", "sans-serif"],
+        // Poppins is what acud.eg sets everything in. The stack behind it is
+        // what shows while the webfont loads, and if it never does.
+        sans: ["Poppins", "ui-sans-serif", "system-ui", "-apple-system", "Segoe UI", "sans-serif"],
       },
       keyframes: {
         rise: {

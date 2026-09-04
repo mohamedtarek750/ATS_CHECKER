@@ -326,7 +326,7 @@ export default function Results({
           {data.job_title} · {data.must_total} must-have, {data.nice_total} nice-to-have
         </p>
         <button className="btn-ghost" onClick={download}>
-          Download CSV
+          Download as a spreadsheet
         </button>
       </div>
 
@@ -355,7 +355,7 @@ export default function Results({
             checked={showAll}
             onChange={(e) => setShowAll(e.target.checked)}
           />
-          Show the {hidden} rejected
+          Also show the {hidden} rejected
         </label>
       )}
     </div>
