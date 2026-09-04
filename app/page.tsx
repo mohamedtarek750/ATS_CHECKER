@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import JobStep from "@/components/JobStep";
 import Results from "@/components/Results";
@@ -86,24 +87,47 @@ export default function Page() {
               Read each CV once, match it against any vacancy, see every reason
             </p>
           </div>
-          {server && (
-            <div className="hidden shrink-0 text-right text-xs text-muted sm:block">
-              <div>
-                CVs: <strong className="text-ink">{server.provider}</strong>
-                {server.provider === "offline" && " (no key needed)"}
+          <div className="flex shrink-0 items-center gap-3">
+            {server && (
+              <div className="hidden text-right text-xs text-muted lg:block">
+                <div>
+                  CVs: <strong className="text-ink">{server.provider}</strong>
+                  {server.provider === "offline" && " (no key needed)"}
+                </div>
+                <div>
+                  Adverts:{" "}
+                  <strong className="text-ink">
+                    {server.can_read_jobs ? server.job_model : "unavailable"}
+                  </strong>
+                </div>
               </div>
-              <div>
-                Adverts:{" "}
-                <strong className="text-ink">
-                  {server.can_read_jobs ? server.job_model : "unavailable"}
-                </strong>
-              </div>
-            </div>
-          )}
+            )}
+            <Link href="/admin" className="btn-primary text-sm">
+              Vacancies &amp; applicants →
+            </Link>
+          </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-4xl space-y-12 px-6 py-10">
+        <div className="card flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+          <p className="min-w-0 text-sm text-muted">
+            <strong className="text-ink">
+              This page screens CVs you already have.
+            </strong>{" "}
+            Nothing is saved — close the tab and it is gone. To publish a link
+            people apply through, and keep what arrives, open a vacancy instead.
+          </p>
+          <div className="flex shrink-0 gap-2">
+            <Link href="/admin" className="btn-ghost text-sm">
+              Vacancies
+            </Link>
+            <Link href="/workforce" className="btn-ghost text-sm">
+              Workforce planning
+            </Link>
+          </div>
+        </div>
+
         <Step
           index={1}
           title="Add the CVs"
