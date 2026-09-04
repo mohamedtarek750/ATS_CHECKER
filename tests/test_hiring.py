@@ -656,6 +656,111 @@ def test_the_scheduled_sweep_fits_the_plan_it_deploys_to():
         )
 
 
+PASSWORD_ENV = dict(
+    ATS_AUTH="on",
+    ATS_ADMIN_EMAILS="admin@gmail.com",
+    ATS_ADMIN_PASSWORD="a-real-password-9182",
+    GOOGLE_OAUTH_CLIENT_ID=None,
+)
+
+
+def test_an_email_and_password_open_the_dashboard():
+    client = admin_client()
+    with environment(**PASSWORD_ENV):
+        state = client.get("/api/auth/status").json()
+        assert state["password"] is True
+        assert state["google"] is False
+        assert state["configured"] is True
+
+        got = client.post(
+            "/api/auth/login",
+            json={"email": "admin@gmail.com", "password": "a-real-password-9182"},
+        )
+        assert got.status_code == 200
+        token = got.json()["token"]
+
+        headers = {"Authorization": f"Bearer {token}"}
+        assert client.get("/api/auth/me", headers=headers).json()["email"] == (
+            "admin@gmail.com"
+        )
+        assert client.get("/api/postings", headers=headers).status_code == 200
+
+
+def test_the_wrong_password_and_the_wrong_address_are_both_refused():
+    client = admin_client()
+    with environment(**PASSWORD_ENV):
+        for email, password in [
+            ("admin@gmail.com", "not-it"),
+            ("admin@gmail.com", ""),
+            ("someone@else.com", "a-real-password-9182"),
+        ]:
+            response = client.post(
+                "/api/auth/login", json={"email": email, "password": password}
+            )
+            assert response.status_code == 401, f"{email}/{password} was let in"
+
+
+def test_a_token_cannot_be_edited_into_a_different_person():
+    """It is signed, so changing the address inside it invalidates it."""
+    from ats import auth
+
+    with environment(**PASSWORD_ENV):
+        token = auth.sign_in("admin@gmail.com", "a-real-password-9182")
+        assert auth.verify(token).email == "admin@gmail.com"
+
+        for tampered in (token[:-6] + "aaaaaa", token + "x", "ats1.bm90LWEtdG9rZW4"):
+            try:
+                auth.verify(tampered)
+            except auth.AuthError:
+                pass
+            else:
+                raise AssertionError(f"accepted a forged token: {tampered[:24]}")
+
+
+def test_changing_the_password_ends_the_sessions_opened_with_the_old_one():
+    """No session store to clear, and nothing to remember to revoke."""
+    from ats import auth
+
+    with environment(**PASSWORD_ENV):
+        token = auth.sign_in("admin@gmail.com", "a-real-password-9182")
+        assert auth.verify(token)
+
+    with environment(**dict(PASSWORD_ENV, ATS_ADMIN_PASSWORD="something-else-8811")):
+        try:
+            auth.verify(token)
+        except auth.AuthError:
+            pass
+        else:
+            raise AssertionError("an old session survived a password change")
+
+
+def test_a_guessable_password_is_allowed_but_never_quiet_about_it():
+    """A prototype is a real use. Discovering the password was 'admin' after
+    real CVs arrived would not be."""
+    from ats import auth
+
+    with environment(**dict(PASSWORD_ENV, ATS_ADMIN_PASSWORD="admin")):
+        assert auth.password_is_weak()
+        assert auth.status()["weak_password"] is True
+        # Still works - it is their call, and the banner says so on every screen.
+        assert auth.verify(auth.sign_in("admin@gmail.com", "admin"))
+
+    with environment(**PASSWORD_ENV):
+        assert auth.password_is_weak() is False
+        assert auth.status()["weak_password"] is False
+
+
+def test_neither_door_configured_still_fails_closed():
+    client = admin_client()
+    with environment(
+        ATS_AUTH="on", ATS_ADMIN_EMAILS="admin@gmail.com",
+        ATS_ADMIN_PASSWORD=None, GOOGLE_OAUTH_CLIENT_ID=None,
+    ):
+        assert client.get("/api/postings").status_code == 503
+        detail = client.get("/api/postings").json()["detail"]
+        assert "ATS_ADMIN_PASSWORD" in detail
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):

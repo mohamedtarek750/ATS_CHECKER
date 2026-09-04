@@ -686,6 +686,21 @@ class AuthStatusOut(BaseModel):
     #: Handed to Google's button in the browser. Empty when auth is off.
     client_id: str
     admins: int
+    #: Which doors are open. Either is enough; both can be on at once.
+    password: bool = False
+    google: bool = False
+    #: True while the password would not slow anybody down. Said on screen.
+    weak_password: bool = False
+
+
+class LoginIn(BaseModel):
+    email: str
+    password: str
+
+
+class LoginOut(BaseModel):
+    token: str
+    email: str
 
 
 def require_admin(authorization: str | None = Header(default=None)) -> auth.AdminUser:
@@ -710,6 +725,23 @@ def require_admin(authorization: str | None = Header(default=None)) -> auth.Admi
 def auth_status() -> AuthStatusOut:
     """What the sign-in page needs before anybody has signed in."""
     return AuthStatusOut(**auth.status())
+
+
+@app.post("/api/auth/login", response_model=LoginOut)
+def sign_in(body: LoginIn) -> LoginOut:
+    """Exchange an email and password for a token the browser then carries.
+
+    The token is signed here and checked here; nothing is stored, so it costs
+    no database and survives a cold start. It lasts twelve hours, and changing
+    the password ends every session opened under the old one.
+    """
+    try:
+        token = auth.sign_in(body.email, body.password)
+    except auth.AuthNotConfigured as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except auth.AuthError as exc:
+        raise HTTPException(401, str(exc)) from exc
+    return LoginOut(token=token, email=body.email.strip().lower())
 
 
 @app.get("/api/auth/me", response_model=AdminOut)

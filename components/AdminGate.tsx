@@ -5,6 +5,7 @@ import { Note } from "./Shell";
 import {
   authStatus,
   setAdminToken,
+  signIn,
   whoAmI,
   type AdminUser,
   type AuthStatus,
@@ -76,9 +77,11 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
         <Note tone="bad">
           <strong>The dashboard is not set up for sign-in.</strong>
           <span className="mt-2 block">
-            Set <code>GOOGLE_OAUTH_CLIENT_ID</code> and{" "}
-            <code>ATS_ADMIN_EMAILS</code> in the deployment&rsquo;s environment.
-            Until then it stays shut, because it holds applicants&rsquo; CVs.
+            Set <code>ATS_ADMIN_EMAILS</code>, and one of{" "}
+            <code>ATS_ADMIN_PASSWORD</code> or{" "}
+            <code>GOOGLE_OAUTH_CLIENT_ID</code>, in the deployment&rsquo;s
+            environment. Until then it stays shut, because it holds
+            applicants&rsquo; CVs.
           </span>
         </Note>
       </Centered>
@@ -88,17 +91,35 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
   if (!user) {
     return (
       <Centered>
-        <div className="card animate-rise px-6 py-8 text-center">
-          <h1 className="text-lg font-semibold">ACUD ATS</h1>
-          <p className="mt-1.5 mb-5 text-sm text-muted">
-            Sign in with the Google account your team put on the list.
+        <div className="card animate-rise px-6 py-7">
+          <h1 className="text-center text-lg font-semibold">ACUD ATS</h1>
+          <p className="mt-1.5 mb-5 text-center text-sm text-muted">
+            {status?.password
+              ? "Sign in to open the dashboard."
+              : "Sign in with the Google account your team put on the list."}
           </p>
-          <GoogleButton
-            clientId={status?.client_id ?? ""}
-            onCredential={onCredential}
-          />
+
+          {status?.password && (
+            <PasswordForm onSignedIn={setUser} onError={setError} />
+          )}
+
+          {status?.password && status?.google && (
+            <div className="my-4 flex items-center gap-3 text-xs text-muted">
+              <span className="h-px flex-1 bg-line" />
+              or
+              <span className="h-px flex-1 bg-line" />
+            </div>
+          )}
+
+          {status?.google && (
+            <GoogleButton
+              clientId={status?.client_id ?? ""}
+              onCredential={onCredential}
+            />
+          )}
+
           {error && (
-            <div className="mt-4 text-left">
+            <div className="mt-4">
               <Note tone="bad">{error}</Note>
             </div>
           )}
@@ -115,8 +136,78 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
           reach this page can read every applicant&rsquo;s CV.
         </div>
       )}
+      {status?.required && status.weak_password && (
+        <div className="border-b bg-warn-wash px-6 py-2 text-center text-xs text-warn">
+          The dashboard password is one anybody would guess. Fine while this
+          holds test data — change <code>ATS_ADMIN_PASSWORD</code> before real
+          applicants use it.
+        </div>
+      )}
       {children}
     </>
+  );
+}
+
+/**
+ * Email and password, exchanged for a token the browser then carries.
+ *
+ * The password never reaches anything but the login endpoint, and what comes
+ * back is a signed note saying who this is and when it stops counting - so
+ * there is no session store to keep, and nothing to survive a cold start.
+ */
+function PasswordForm({
+  onSignedIn,
+  onError,
+}: {
+  onSignedIn: (user: AdminUser) => void;
+  onError: (message: string) => void;
+}) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    onError("");
+    try {
+      await signIn(email, password);
+      onSignedIn(await whoAmI());
+    } catch (e) {
+      setAdminToken("");
+      onError(e instanceof Error ? e.message : "That sign-in was refused.");
+    }
+    setBusy(false);
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-2.5">
+      <input
+        className="field w-full"
+        type="email"
+        autoComplete="username"
+        placeholder="Email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        required
+      />
+      <input
+        className="field w-full"
+        type="password"
+        autoComplete="current-password"
+        placeholder="Password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        required
+      />
+      <button
+        type="submit"
+        className="btn-primary w-full justify-center"
+        disabled={busy || !email || !password}
+      >
+        {busy ? "Signing in…" : "Sign in"}
+      </button>
+    </form>
   );
 }
 

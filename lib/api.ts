@@ -498,6 +498,9 @@ export interface AuthStatus {
   configured: boolean;
   client_id: string;
   admins: number;
+  password: boolean;
+  google: boolean;
+  weak_password: boolean;
 }
 
 export interface AdminUser {
@@ -508,6 +511,18 @@ export interface AdminUser {
 
 export async function authStatus(): Promise<AuthStatus> {
   return unwrap<AuthStatus>(await fetch("/api/auth/status"));
+}
+
+/** Email and password in, a token to carry out. */
+export async function signIn(email: string, password: string): Promise<string> {
+  const response = await fetch("/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  const { token } = await unwrap<{ token: string; email: string }>(response);
+  setAdminToken(token);
+  return token;
 }
 
 export async function whoAmI(): Promise<AdminUser> {
