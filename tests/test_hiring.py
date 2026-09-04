@@ -285,10 +285,10 @@ def test_an_application_survives_the_round_trip_through_a_sheet_row():
     assert _column_letter(0) == "A"
     assert _column_letter(25) == "Z"
     assert _column_letter(26) == "AA"
-    # 22 columns, A..V. Hardcoded so an off-by-one in the range maths is caught
+    # 23 columns, A..W. Hardcoded so an off-by-one in the range maths is caught
     # rather than confirmed by the same expression that produced it.
-    assert len(APPLICATION_COLUMNS) == 22
-    assert _column_letter(len(APPLICATION_COLUMNS) - 1) == "V"
+    assert len(APPLICATION_COLUMNS) == 23
+    assert _column_letter(len(APPLICATION_COLUMNS) - 1) == "W"
 
 
 def test_a_misconfigured_sheets_backend_says_what_is_missing():

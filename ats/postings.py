@@ -110,6 +110,16 @@ class Application:
     decided_by: str = ""
     decided_at: str = ""
 
+    #: What the CV tried on the reader, if anything. Never a rejection on its
+    #: own - the patterns can appear innocently, and a system that binned people
+    #: on a regex would throw away real applicants and tell nobody. A person
+    #: looks, which is why it has to reach the screen.
+    security_flags: list[str] = field(default_factory=list)
+
+    @property
+    def is_suspicious(self) -> bool:
+        return bool(self.security_flags)
+
     @property
     def is_read(self) -> bool:
         return self.status == "read"

@@ -45,7 +45,7 @@ from ats.stages import template_match as template  # noqa: E402
 from ats.stages import match as match_stage  # noqa: E402
 from ats import intake, postings  # noqa: E402
 from ats.backends import get_backend  # noqa: E402
-from ats import auth, notify, stats as stats_module  # noqa: E402
+from ats import auth, injection, notify, stats as stats_module  # noqa: E402
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 
@@ -131,7 +131,15 @@ def read_upload(upload: UploadFile) -> parse.ParsedDoc:
         temp_path.unlink(missing_ok=True)
 
 
-def profile_from(doc: parse.ParsedDoc, settings: Settings) -> CandidateProfile:
+def profile_from(
+    doc: parse.ParsedDoc, settings: Settings
+) -> tuple[CandidateProfile, injection.Report]:
+    """The record, and whatever had to be struck off it.
+
+    Returns the security report rather than swallowing it: this endpoint reads
+    a file an unknown person uploaded, and if something was removed from the
+    record the person looking at it needs to be told.
+    """
     if not doc.ok:
         raise HTTPException(422, doc.error)
 
@@ -152,7 +160,11 @@ def profile_from(doc: parse.ParsedDoc, settings: Settings) -> CandidateProfile:
 
     profile.skills = normalize_all(profile.skills)
     profile.email = profile.email.strip().lower()
-    return profile
+
+    # Hold the record to the document it came from. A skill the document never
+    # mentions was hallucinated or planted; either way it is not evidence.
+    report = injection.verify(profile, doc.text)
+    return (profile, report)
 
 
 # --------------------------------------------------------------------------
@@ -162,6 +174,9 @@ class ParsedCV(BaseModel):
     filename: str
     key: str = Field(description="Content hash - identifies a re-upload as the same CV.")
     profile: CandidateProfile
+    #: Anything the document tried on the reader, and anything struck off the
+    #: record because the document does not support it.
+    warnings: list[str] = []
 
 
 class JobText(BaseModel):
@@ -341,10 +356,12 @@ def parse_cv(file: UploadFile = File(...), provider: str | None = None) -> Parse
     """One CV in, one structured profile out. The browser keeps the result."""
     settings = settings_for(provider)
     doc = read_upload(file)
+    profile, report = profile_from(doc, settings)
     return ParsedCV(
         filename=doc.path.name,
         key=doc.key,
-        profile=profile_from(doc, settings),
+        profile=profile,
+        warnings=report.warnings,
     )
 
 
@@ -568,6 +585,8 @@ class ApplicationOut(BaseModel):
     decision_label: str
     decided_by: str
     decided_at: str
+    #: What the CV tried on the reader. Shown, never acted on automatically.
+    security_flags: list[str] = []
     note: str
     #: Scored under an older engine, so the number may not be reproducible.
     stale: bool
@@ -633,6 +652,7 @@ def _application_out(row) -> ApplicationOut:
         decision_label=postings.DECISION_LABEL.get(row.decision, row.decision),
         decided_by=row.decided_by,
         decided_at=row.decided_at,
+        security_flags=row.security_flags,
         note=row.note,
         stale=row.is_stale,
     )

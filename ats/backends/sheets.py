@@ -69,6 +69,7 @@ APPLICATION_COLUMNS = [
     "status", "detail", "read_at",
     "percent", "required_percent", "preferred_percent", "tier", "reason",
     "engine_version", "decision", "decided_by", "decided_at", "note",
+    "security_flags",
 ]
 
 
@@ -333,12 +334,23 @@ class SheetsBackend:
             decision=record.get("decision") or "new",  # type: ignore[arg-type]
             decided_by=record.get("decided_by", ""),
             decided_at=record.get("decided_at", ""),
+            security_flags=[
+                line for line in (record.get("security_flags", "") or "").split(" | ")
+                if line
+            ],
             note=record.get("note", ""),
         )
 
     @staticmethod
     def _to_record(application: Application) -> dict:
-        return {c: getattr(application, c, "") for c in APPLICATION_COLUMNS}
+        record = {}
+        for column in APPLICATION_COLUMNS:
+            value = getattr(application, column, "")
+            # A cell holds text. A list written straight in lands as
+            # "['a', 'b']" and does not survive the trip back out, so the few
+            # list-valued fields are joined on the separator they are split on.
+            record[column] = " | ".join(value) if isinstance(value, list) else value
+        return record
 
     def applications(self, job_slug: str) -> list[Application]:
         rows = self._read_tab(APPLICATIONS_TAB, APPLICATION_COLUMNS)

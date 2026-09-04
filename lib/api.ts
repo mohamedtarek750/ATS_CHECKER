@@ -45,6 +45,7 @@ export interface ParsedCV {
   filename: string;
   key: string;
   profile: CandidateProfile;
+  warnings?: string[];
 }
 
 export interface RequirementResult {
@@ -406,6 +407,8 @@ export interface ApplicationRow {
   decision_label: string;
   decided_by: string;
   decided_at: string;
+  /** What the CV tried on the reader. Shown to a person, never acted on. */
+  security_flags: string[];
   note: string;
   /** Scored under an older engine, so the number may not be reproducible. */
   stale: boolean;

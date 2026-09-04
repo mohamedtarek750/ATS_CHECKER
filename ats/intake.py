@@ -21,6 +21,7 @@ from .blueprint import blueprint_for
 from .config import Settings
 from .models import CandidateProfile
 from .postings import ENGINE_VERSION, Application, JobPosting, now
+from . import injection
 from .stages import offline, parse, rank
 from .stages import match as match_stage
 from .stages import template_match as template
@@ -100,10 +101,15 @@ def read(backend, posting: JobPosting, application: Application) -> Application:
             return application
 
         profile = offline.extract_profile(doc)
+        # Rules cannot be argued with, so nothing here needs striking off. But
+        # the document may still be carrying an instruction aimed at a model,
+        # and the recruiter is entitled to know before they read it.
+        security = injection.verify(profile, doc.text)
     finally:
         temp.unlink(missing_ok=True)
 
     backend.save_profile(application.id, profile)
+    application.security_flags = security.warnings
 
     if not profile.is_cv:
         application.status = "not_a_cv"

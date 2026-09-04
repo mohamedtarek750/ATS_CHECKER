@@ -397,6 +397,15 @@ function Row({
           </span>
         </button>
 
+        {row.security_flags.length > 0 && (
+          <span
+            className="chip mr-2 shrink-0 bg-bad-wash text-bad"
+            title="This CV contains text aimed at the reader. Open it and look."
+          >
+            Check CV
+          </span>
+        )}
+
         <button
           onClick={openCv}
           disabled={opening}
@@ -422,6 +431,29 @@ function Row({
               Scored under an older version of the matching rules, so this
               percentage may not match what the engine would produce today.
             </Note>
+          )}
+
+          {row.security_flags.length > 0 && (
+            <div className="mb-3">
+              <Note tone="bad">
+                <strong className="text-ink">
+                  This CV contains text written at the reader, not at you.
+                </strong>
+                <span className="mt-1.5 block">
+                  Flagged, not rejected — the wording can appear innocently and
+                  no application is ended by a pattern match. Anything the
+                  document does not actually support has already been struck off
+                  the record below.
+                </span>
+                <ul className="mt-2 list-disc space-y-1 pl-5">
+                  {row.security_flags.map((flag, index) => (
+                    <li key={index} className="text-xs">
+                      {flag}
+                    </li>
+                  ))}
+                </ul>
+              </Note>
+            </div>
           )}
 
           <div className="mb-1.5 flex flex-wrap items-center gap-2">
