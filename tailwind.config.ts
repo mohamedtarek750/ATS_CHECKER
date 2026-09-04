@@ -27,10 +27,11 @@ export default {
         "warn-wash": token("warn-wash"),
         bad: token("bad"),
         "bad-wash": token("bad-wash"),
-        // ACUD's gold. Used for rules, the mark, and quiet emphasis - never
-        // for a status, which would put it in competition with good/warn/bad.
-        gold: token("gold"),
-        "gold-wash": token("gold-wash"),
+        // The red from ACUD's logo. Used for the rule and quiet emphasis -
+        // never for a status, which would put it in competition with
+        // good/warn/bad and make two different reds mean two different things.
+        brand: token("brand"),
+        "brand-wash": token("brand-wash"),
       },
       fontFamily: {
         // Poppins is what acud.eg sets everything in. The stack behind it is

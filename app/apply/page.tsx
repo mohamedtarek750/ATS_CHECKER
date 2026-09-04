@@ -74,7 +74,7 @@ export default function OpenApplyPage() {
         <div className="mb-6">
           <AcudMark subtitle="Careers" />
         </div>
-        <p className="text-xs uppercase tracking-wide text-gold">
+        <p className="text-xs uppercase tracking-wide text-brand">
           Open application
         </p>
         <h1 className="mt-1 text-2xl font-semibold tracking-tight">

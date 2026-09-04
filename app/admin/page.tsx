@@ -54,7 +54,7 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-dvh">
-      <header className="rule-gold sticky top-0 z-10 bg-bg/90 backdrop-blur">
+      <header className="rule-brand sticky top-0 z-10 bg-bg/90 backdrop-blur">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-6 py-3.5">
           <AcudMark subtitle="Jobs and applicants" />
           <div className="flex shrink-0 gap-2">

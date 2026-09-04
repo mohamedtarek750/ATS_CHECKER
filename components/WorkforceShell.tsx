@@ -34,7 +34,7 @@ export function WorkforceShell({
 
   return (
     <div className="min-h-dvh">
-      <header className="rule-gold sticky top-0 z-10 bg-bg/90 backdrop-blur">
+      <header className="rule-brand sticky top-0 z-10 bg-bg/90 backdrop-blur">
         <div className="mx-auto max-w-5xl px-6 py-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <AcudMark subtitle="Workforce planning" />

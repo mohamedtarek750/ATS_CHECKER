@@ -4,55 +4,36 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ACUD's own colours, read off acud.eg rather than guessed at: the deep navy
-   #0B1D3A the site is built on, and the gold #C9A962 it accents with. Poppins
-   is the face they set everything in.
+/* ACUD's identity, sampled from their own logo file rather than guessed at.
+   The artwork is black and #ED1C24 red on a TRANSPARENT ground - 85% of the
+   file is transparent - so it is only legible on a light background. That
+   settles the question of a dark theme: there is no version of this palette
+   where the logo works on a dark ground, and acud.eg is white-bodied anyway.
 
-   One palette, defined light-first, with the dark values swapping only the
-   tokens. Every colour used anywhere resolves through these, so nothing can be
-   readable in one theme and invisible in the other. */
+   Light only, therefore. Every colour resolves through these tokens. */
 :root {
+  color-scheme: light;
+
   --bg: 255 255 255;
   --surface: 255 255 255;
-  --raised: 246 248 251;
-  --ink: 11 29 58;          /* ACUD navy, doubling as the text colour */
-  --muted: 100 116 139;
-  --line: 226 232 240;
-  --accent: 11 29 58;       /* navy: primary buttons, active states */
+  --raised: 247 248 250;
+  --ink: 17 17 17;           /* the logo's black */
+  --muted: 106 112 120;
+  --line: 226 229 233;
+
+  --accent: 17 17 17;        /* black leads, as it does in the wordmark */
   --accent-ink: 255 255 255;
-  --gold: 201 169 98;       /* ACUD gold: rules, marks, quiet emphasis */
-  --gold-wash: 250 246 237;
+
+  --brand: 237 28 36;        /* #ED1C24, the exact red in the logo */
+  --brand-wash: 254 242 242;
+
   --good: 12 122 77;
   --good-wash: 236 253 245;
   --warn: 146 101 0;
   --warn-wash: 255 251 235;
-  --bad: 154 43 43;
+  --bad: 197 32 39;          /* the brand red, darkened just enough to read */
   --bad-wash: 254 242 242;
-  --ring: 11 29 58;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    /* The navy IS the background here, which is how the site's own dark
-       sections read. Gold lifts a shade so it stays legible on it. */
-    --bg: 8 20 40;
-    --surface: 13 30 56;
-    --raised: 18 38 68;
-    --ink: 226 232 240;
-    --muted: 148 168 190;
-    --line: 30 54 88;
-    --accent: 201 169 98;   /* gold leads in the dark, as it does on acud.eg */
-    --accent-ink: 8 20 40;
-    --gold: 214 186 124;
-    --gold-wash: 32 40 34;
-    --good: 74 209 149;
-    --good-wash: 12 40 31;
-    --warn: 235 179 62;
-    --warn-wash: 46 35 10;
-    --bad: 248 129 129;
-    --bad-wash: 51 22 22;
-    --ring: 141 157 173;
-  }
+  --ring: 17 17 17;
 }
 
 * {
@@ -66,17 +47,13 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* The gold hairline the site uses to separate a header from what follows. */
-.rule-gold {
-  border-bottom: 2px solid rgb(var(--gold));
+/* The red rule the logo itself draws above its Arabic line. */
+.rule-brand {
+  border-bottom: 2px solid rgb(var(--brand));
 }
 
-.text-gold {
-  color: rgb(var(--gold));
-}
-
-.bg-gold-wash {
-  background: rgb(var(--gold-wash));
+.text-brand {
+  color: rgb(var(--brand));
 }
 
 @layer components {

@@ -120,7 +120,7 @@ export default function ApplyPage({
         <div className="mb-6">
           <AcudMark subtitle="Careers" />
         </div>
-        <p className="text-xs uppercase tracking-wide text-gold">Now hiring</p>
+        <p className="text-xs uppercase tracking-wide text-brand">Now hiring</p>
         <h1 className="mt-1 text-2xl font-semibold tracking-tight">
           {posting.title}
         </h1>
