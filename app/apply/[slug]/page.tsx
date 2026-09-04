@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { use } from "react";
 import { AcudMark } from "@/components/AcudMark";
+import { CvField } from "@/components/CvField";
 import { Note } from "@/components/Shell";
 import {
   publicPosting,
@@ -116,20 +117,17 @@ export default function ApplyPage({
 
   return (
     <Centered>
-      <div className="mb-6">
-        <div className="mb-6">
-          <AcudMark subtitle="Careers" />
-        </div>
-        <p className="text-xs uppercase tracking-wide text-brand">Now hiring</p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-          {posting.title}
-        </h1>
+      <div className="mb-8">
+        <p className="eyebrow">Now hiring</p>
+        <h1 className="display mt-2">{posting.title}</h1>
         {posting.summary && (
-          <p className="mt-2 text-sm text-muted">{posting.summary}</p>
+          <p className="mt-3 max-w-[52ch] text-[15px] leading-relaxed text-muted">
+            {posting.summary}
+          </p>
         )}
       </div>
 
-      <form onSubmit={submit} className="card animate-rise space-y-4 px-5 py-5">
+      <form onSubmit={submit} className="card animate-rise space-y-5 px-6 py-7">
         <Field label="Your name" required>
           <input
             className="field"
@@ -160,19 +158,13 @@ export default function ApplyPage({
           />
         </Field>
 
-        <Field label="Your CV" required hint="PDF, DOCX, TXT, MD or RTF · up to 8 MB.">
-          <input
-            className="field"
-            type="file"
-            accept=".pdf,.docx,.doc,.txt,.md,.rtf"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            required
-          />
+        <Field label="Your CV" required>
+          <CvField file={file} onFile={setFile} />
         </Field>
 
         {error && <Note tone="bad">{error}</Note>}
 
-        <button className="btn-primary w-full" disabled={busy}>
+        <button className="btn-primary w-full py-3 text-[15px]" disabled={busy}>
           {busy ? "Sending…" : "Send application"}
         </button>
 
@@ -185,10 +177,36 @@ export default function ApplyPage({
   );
 }
 
+/**
+ * The frame both applicant pages sit in.
+ *
+ * A header band carrying the logo, the page itself, and a line saying who is
+ * asking. A candidate arriving from a link has no other context, so the page
+ * has to establish whose it is before it asks for their CV.
+ */
 function Centered({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-dvh">
-      <main className="mx-auto w-full max-w-lg px-6 py-12">{children}</main>
+    <div className="flex min-h-dvh flex-col">
+      <header className="page-header">
+        <div className="mx-auto w-full max-w-2xl px-6 py-3.5">
+          <AcudMark subtitle="Careers" />
+        </div>
+      </header>
+
+      <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-10 sm:py-14">
+        {children}
+      </main>
+
+      <footer className="mx-auto w-full max-w-2xl px-6 pb-10">
+        <p className="border-t pt-5 text-xs leading-relaxed text-muted">
+          Administrative Capital for Urban Development · العاصمة الإدارية
+          للتنمية العمرانية
+          <span className="mt-1 block">
+            Your details are used for hiring and nothing else, and only the
+            hiring team can open your CV.
+          </span>
+        </p>
+      </footer>
     </div>
   );
 }

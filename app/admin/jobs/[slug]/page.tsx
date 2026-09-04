@@ -623,7 +623,7 @@ function Frame({
 }) {
   return (
     <div className="min-h-dvh">
-      <header className="rule-brand sticky top-0 z-10 bg-bg/90 backdrop-blur">
+      <header className="page-header">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-6 py-3.5">
           <div className="min-w-0">
             <h1 className="truncate text-[15px] font-semibold tracking-tight">

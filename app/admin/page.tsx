@@ -54,7 +54,7 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-dvh">
-      <header className="rule-brand sticky top-0 z-10 bg-bg/90 backdrop-blur">
+      <header className="page-header">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-6 py-3.5">
           <AcudMark subtitle="Jobs and applicants" />
           <div className="flex shrink-0 gap-2">
@@ -115,10 +115,13 @@ export default function AdminPage() {
         {postings === null && <p className="text-sm text-muted">Loading…</p>}
 
         {postings !== null && postings.length === 0 && !creating && (
-          <Note>
-            No jobs yet. Add one and you will get a link to share with
-            candidates.
-          </Note>
+          <div className="empty">
+            <p className="text-[15px] font-semibold">No jobs yet</p>
+            <p className="mx-auto mt-1.5 max-w-[46ch] text-sm text-muted">
+              Add one, paste its description, and you will get a link to share
+              with candidates.
+            </p>
+          </div>
         )}
 
         <div className="space-y-3">

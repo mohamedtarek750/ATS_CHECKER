@@ -45,6 +45,29 @@ body {
   color: rgb(var(--ink));
   font-family: Poppins, ui-sans-serif, system-ui, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Headings tighten as they grow. Poppins is wide, and a large heading set at
+   default tracking reads loose and unedited. */
+h1, h2, h3 {
+  letter-spacing: -0.02em;
+}
+
+/* The eyebrow above a page title: small, spaced, and in the brand red, the way
+   the logo uses red for its own second line. */
+.eyebrow {
+  @apply text-[11px] font-semibold uppercase tracking-[0.14em];
+  color: rgb(var(--brand));
+}
+
+.display {
+  @apply text-[28px] font-bold leading-[1.15] sm:text-[34px];
+}
+
+/* Numbers in a table or a stat must not shuffle sideways as they change. */
+.tabular {
+  font-variant-numeric: tabular-nums;
 }
 
 /* The red rule the logo itself draws above its Arabic line. */
@@ -58,8 +81,26 @@ body {
 
 @layer components {
   .card {
-    @apply rounded-xl border shadow-[0_1px_2px_rgba(0,0,0,0.04)];
+    @apply rounded-xl border transition-shadow;
     background: rgb(var(--surface));
+    box-shadow:
+      0 1px 2px rgb(17 17 17 / 0.04),
+      0 8px 24px -16px rgb(17 17 17 / 0.12);
+  }
+  /* Only cards that are themselves a control lift on hover. A card that lifts
+     when nothing will happen is a promise the interface does not keep. */
+  a.card:hover,
+  button.card:hover {
+    box-shadow:
+      0 1px 2px rgb(17 17 17 / 0.05),
+      0 12px 28px -14px rgb(17 17 17 / 0.18);
+  }
+
+  /* The band every page hangs its identity from. */
+  .page-header {
+    @apply sticky top-0 z-10 border-b bg-bg/95 backdrop-blur;
+    border-bottom-color: rgb(var(--brand));
+    border-bottom-width: 2px;
   }
   .raised {
     background: rgb(var(--raised));
@@ -70,15 +111,22 @@ body {
            px-4 py-2 text-sm font-medium transition
            focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2
            disabled:cursor-not-allowed disabled:opacity-40;
-    outline-color: rgb(var(--ring));
+    /* The focus ring is the brand red: it has to be findable by somebody
+       tabbing through, and a grey ring on a white page is not. */
+    outline-color: rgb(var(--brand));
   }
   .btn-primary {
     @apply btn;
     background: rgb(var(--accent));
     color: rgb(var(--accent-ink));
+    box-shadow: 0 1px 2px rgb(17 17 17 / 0.16);
   }
   .btn-primary:hover:not(:disabled) {
-    opacity: 0.88;
+    background: rgb(var(--brand));
+    box-shadow: 0 2px 10px -2px rgb(var(--brand) / 0.45);
+  }
+  .btn-primary:active:not(:disabled) {
+    transform: translateY(1px);
   }
   .btn-ghost {
     @apply btn border;
@@ -90,15 +138,34 @@ body {
   }
 
   .field {
-    @apply w-full rounded-lg border px-3 py-2 text-sm transition
-           focus:outline focus:outline-2 focus:outline-offset-0;
+    @apply w-full rounded-lg border px-3.5 py-2.5 text-sm transition
+           focus:outline-none;
     background: rgb(var(--surface));
     color: rgb(var(--ink));
-    outline-color: rgb(var(--ring) / 0.35);
+  }
+  .field:hover:not(:disabled) {
+    border-color: rgb(var(--muted) / 0.5);
+  }
+  /* A ring drawn from the border rather than an outline, so the field grows no
+     wider on focus and nothing beside it moves. */
+  .field:focus {
+    border-color: rgb(var(--brand));
+    box-shadow: 0 0 0 3px rgb(var(--brand) / 0.14);
+  }
+  .field::placeholder {
+    color: rgb(var(--muted) / 0.75);
   }
 
   .chip {
-    @apply inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium;
+    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+
+  /* Where a page has nothing to show yet. Deliberately not an error: an empty
+     dashboard on the first day is the expected state, and it should say what
+     to do rather than sit blank. */
+  .empty {
+    @apply rounded-xl border border-dashed px-6 py-10 text-center;
+    background: rgb(var(--raised));
   }
 
   /* The step rail down the left of each section. */
