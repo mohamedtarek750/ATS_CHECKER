@@ -518,6 +518,11 @@ class PostingOut(BaseModel):
     #: Filled in on the dashboard listing, not on the public page.
     applications: int = 0
     unread: int = 0
+    #: The split, so the list answers "how is this vacancy doing" without
+    #: having to open every vacancy in turn to find out.
+    accepted: int = 0
+    waiting_list: int = 0
+    rejected: int = 0
 
 
 class PublicPostingOut(BaseModel):
@@ -596,6 +601,12 @@ def _posting_out(posting, rows: list | None = None) -> PostingOut:
         nice_total=len(posting.profile.nice_to_haves),
         applications=len(rows) if rows is not None else 0,
         unread=sum(1 for r in (rows or []) if r.status == "pending"),
+        # Only applications that have actually been read carry a tier. A
+        # pending one is not a rejection, and counting it as one would make a
+        # vacancy nobody has read yet look like a vacancy nobody passed.
+        accepted=sum(1 for r in (rows or []) if r.tier == "accepted"),
+        waiting_list=sum(1 for r in (rows or []) if r.tier == "waiting_list"),
+        rejected=sum(1 for r in (rows or []) if r.tier == "rejected"),
     )
 
 

@@ -164,12 +164,32 @@ function PostingCard({
         <span className="text-sm text-muted">
           {posting.applications} applicant
           {posting.applications === 1 ? "" : "s"}
-          {posting.unread > 0 && ` · ${posting.unread} not read yet`}
         </span>
         <span className="ml-auto text-xs text-muted">
           {posting.must_total} must-have · {posting.nice_total} nice-to-have
         </span>
       </div>
+
+      {/* The split, on the list itself. Otherwise "how is this vacancy doing"
+          means opening every vacancy in turn to find out. */}
+      {posting.applications > 0 && (
+        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+          <span className="chip bg-good-wash text-good">
+            {posting.accepted} accepted
+          </span>
+          <span className="chip bg-warn-wash text-warn">
+            {posting.waiting_list} waiting list
+          </span>
+          <span className="chip raised text-muted">
+            {posting.rejected} rejected
+          </span>
+          {posting.unread > 0 && (
+            <span className="chip raised text-muted">
+              {posting.unread} not read yet
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="mt-2.5 flex flex-wrap items-center gap-2">
         <code className="min-w-0 flex-1 truncate rounded bg-raised px-2 py-1 text-xs text-muted">

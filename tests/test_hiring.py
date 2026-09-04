@@ -549,6 +549,60 @@ def test_the_statistics_panel_needs_a_sign_in_like_everything_else():
         assert client.get("/api/mail/status").status_code == 401
 
 
+def test_the_vacancy_list_splits_applicants_without_counting_anyone_twice():
+    """The list answers "how is this vacancy doing" without opening it.
+
+    The trap is the unread pile: an application nobody has read yet has no
+    tier, and counting it as a rejection would make a vacancy nobody has
+    looked at yet look like a vacancy nobody passed.
+    """
+    tmp = Path(tempfile.mkdtemp())
+    backend = LocalBackend(tmp)
+    try:
+        posting = backend.save_posting(
+            JobPosting(
+                slug="data-analyst", title="Data Analyst", summary="x",
+                profile=JobProfile(
+                    title="Data Analyst", seniority="Mid", summary="x",
+                    min_years_experience=2,
+                    requirements=[
+                        Requirement(text="Strong SQL", kind="skill",
+                                    importance="must_have"),
+                        Requirement(text="Power BI", kind="skill",
+                                    importance="must_have"),
+                    ],
+                ),
+            )
+        )
+        cv = (ROOT / "samples" / "01_data_analyst_omar.pdf").read_bytes()
+        for name in ("Omar", "Mona"):
+            row = intake.receive(
+                backend, posting, full_name=name, email=f"{name}@e.com",
+                phone="", filename="cv.pdf", data=cv,
+            )
+            intake.read(backend, posting, row)
+        # One left deliberately unread.
+        intake.receive(
+            backend, posting, full_name="Later", email="later@e.com",
+            phone="", filename="cv.pdf", data=cv,
+        )
+
+        rows = backend.applications(posting.slug)
+        accepted = sum(1 for r in rows if r.tier == "accepted")
+        waiting = sum(1 for r in rows if r.tier == "waiting_list")
+        rejected = sum(1 for r in rows if r.tier == "rejected")
+        unread = sum(1 for r in rows if r.status == "pending")
+
+        assert unread == 1, "the pending one must stay pending"
+        assert accepted + waiting + rejected + unread == len(rows), (
+            "the split has to add up to the total, or the list lies"
+        )
+        # Specifically: the unread application is not in the rejected pile.
+        assert rejected < len(rows)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):

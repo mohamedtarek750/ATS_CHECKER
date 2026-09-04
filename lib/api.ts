@@ -368,6 +368,9 @@ export interface Posting {
   nice_total: number;
   applications: number;
   unread: number;
+  accepted: number;
+  waiting_list: number;
+  rejected: number;
 }
 
 export interface PublicPosting {
