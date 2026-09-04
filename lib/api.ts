@@ -593,6 +593,42 @@ export function requestRead(applicationId: string): void {
   });
 }
 
+/** The slug of the pile CVs land in when they arrive with no vacancy. */
+export const UNASSIGNED_SLUG = "unassigned";
+
+/** A CV sent in without applying to a particular role. */
+export async function submitOpenApplication(
+  fields: { full_name: string; email: string; phone: string },
+  file: File
+): Promise<{ id: string; full_name: string; status: string }> {
+  const body = new FormData();
+  body.append("full_name", fields.full_name);
+  body.append("email", fields.email);
+  body.append("phone", fields.phone);
+  body.append("file", file);
+  return unwrap(await fetch("/api/public/apply", { method: "POST", body }));
+}
+
+/**
+ * Move a speculative CV onto a real vacancy, where it gets scored.
+ *
+ * Without this the pile is somewhere applications go to be looked at once and
+ * never acted on. The CV is not re-uploaded - it is the same stored file,
+ * measured against a checklist it now has.
+ */
+export async function assignToVacancy(
+  applicationId: string,
+  jobSlug: string
+): Promise<ApplicationRow> {
+  return unwrapAdmin<ApplicationRow>(
+    await adminFetch(`/api/applications/${applicationId}/assign`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ job_slug: jobSlug }),
+    })
+  );
+}
+
 export async function submitApplication(
   slug: string,
   fields: { full_name: string; email: string; phone: string },

@@ -19,6 +19,9 @@ TIER_LABEL = {
     "waiting_list": "Waiting list",
     "rejected": "Rejected",
     "not_a_cv": "Not a CV",
+    # Never produced by ranking. Set by intake for a CV that arrived with no
+    # vacancy behind it, so that "no verdict yet" cannot be read as a verdict.
+    "unscored": "Not scored yet",
 }
 
 TIER_FOLDER = {

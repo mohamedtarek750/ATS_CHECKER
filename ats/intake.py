@@ -118,6 +118,27 @@ def read(backend, posting: JobPosting, application: Application) -> Application:
         backend.update_application(application)
         return application
 
+    # A posting with no requirements has nothing to measure against, and
+    # scoring against an empty checklist would report every one of these as 0%
+    # and rejected - which says somebody was turned down when nobody was even
+    # considered. They are read, and left unscored until a vacancy is chosen.
+    if not posting.profile.requirements:
+        application.status = "read"
+        application.detail = ""
+        application.read_at = now()
+        application.tier = "unscored"
+        application.percent = 0
+        application.required_percent = 0
+        application.preferred_percent = 0
+        application.reason = (
+            "Read, but not scored: this CV arrived without a job description, "
+            "so there is nothing yet to measure it against. Assign it to a "
+            "vacancy to have it matched."
+        )
+        application.engine_version = ENGINE_VERSION
+        backend.update_application(application)
+        return application
+
     entry = rank.rank([match_stage.match(profile, posting.profile, application.cv_filename)])[0]
     application.status = "read"
     application.detail = ""

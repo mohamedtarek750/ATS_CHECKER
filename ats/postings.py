@@ -48,9 +48,37 @@ def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+#: Where a CV goes when it was sent in without a vacancy behind it. Somebody
+#: applying speculatively is not an error, and a CV with nowhere to sit is how
+#: an application quietly disappears.
+UNASSIGNED_SLUG = "unassigned"
+UNASSIGNED_TITLE = "Applicants without a job description"
+
+
 def slugify(text: str) -> str:
     cleaned = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
-    return cleaned[:60] or "role"
+    slug = cleaned[:60] or "role"
+    # A real vacancy must never land on the reserved one and inherit the pile
+    # of speculative CVs sitting in it.
+    return f"{slug}-role" if slug == UNASSIGNED_SLUG else slug
+
+
+def unassigned_posting() -> "JobPosting":
+    """The holding pen. A posting with no requirements, so nothing is scored."""
+    return JobPosting(
+        slug=UNASSIGNED_SLUG,
+        title=UNASSIGNED_TITLE,
+        summary=(
+            "CVs sent in without a vacancy. They are read so you can see who "
+            "applied, and deliberately not scored - there is nothing yet to "
+            "measure them against."
+        ),
+        profile=JobProfile(
+            title=UNASSIGNED_TITLE, seniority="", summary="",
+            min_years_experience=0, requirements=[],
+        ),
+        created_by="system",
+    )
 
 
 @dataclass

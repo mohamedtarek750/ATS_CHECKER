@@ -1067,6 +1067,96 @@ def read_one_application(application_id: str) -> ReceiptOut:
     return ReceiptOut(id=row.id, full_name=row.full_name, status=row.status)
 
 
+def _read_upload_bytes(upload: UploadFile) -> bytes:
+    """The file's bytes, refusing anything empty or over the size limit."""
+    data = upload.file.read()
+    if not data:
+        raise HTTPException(400, "The file is empty.")
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, "That file is larger than 8 MB.")
+    return data
+
+
+def _holding_pen() -> postings.JobPosting:
+    """The reserved posting, created the first time somebody needs it."""
+    backend = get_backend()
+    existing = backend.posting(postings.UNASSIGNED_SLUG)
+    if existing is not None:
+        return existing
+    return backend.save_posting(postings.unassigned_posting())
+
+
+@app.post("/api/public/apply", response_model=ReceiptOut)
+def apply_without_a_vacancy(
+    full_name: str = Form(...),
+    email: str = Form(...),
+    phone: str = Form(""),
+    file: UploadFile = File(...),
+) -> ReceiptOut:
+    """Send in a CV without applying to anything in particular.
+
+    Somebody who wants to work here before a suitable vacancy is open is not an
+    error to be turned away. Their CV is stored and read like any other, and
+    deliberately NOT scored - there is no checklist to measure it against, and
+    scoring against an empty one would report them as 0% and rejected, which
+    says they were turned down when nobody had even looked.
+    """
+    posting = _holding_pen()
+    try:
+        row = intake.receive(
+            get_backend(), posting,
+            full_name=full_name, email=email, phone=phone,
+            filename=file.filename or "cv.pdf", data=_read_upload_bytes(file),
+        )
+    except intake.IntakeError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    notify.application_received(row, posting)
+    return ReceiptOut(id=row.id, full_name=row.full_name, status=row.status)
+
+
+class AssignIn(BaseModel):
+    job_slug: str
+
+
+@app.post("/api/applications/{application_id}/assign", response_model=ApplicationOut)
+def assign_to_vacancy(
+    application_id: str,
+    body: AssignIn,
+    admin: auth.AdminUser = Depends(require_admin),
+) -> ApplicationOut:
+    """Move a speculative CV onto a real vacancy and score it there.
+
+    Without this the holding pen is somewhere applications go to be looked at
+    once and never acted on. The CV is not re-uploaded or re-parsed from
+    scratch - it is the same stored file, measured against a checklist it now
+    has.
+    """
+    backend = get_backend()
+    row = backend.application(application_id)
+    if row is None:
+        raise HTTPException(404, "No such application.")
+
+    target = backend.posting(body.job_slug)
+    if target is None:
+        raise HTTPException(404, "No such vacancy.")
+    if not target.profile.requirements:
+        raise HTTPException(
+            400, "That vacancy has no requirements, so nothing would be measured."
+        )
+
+    row.job_slug = target.slug
+    # Back to pending so the read below is the one that counts, and so a
+    # failure here leaves it visibly unread rather than wrongly scored.
+    row.status = "pending"
+    row.tier = ""
+    row.reason = ""
+    backend.update_application(row)
+
+    row = intake.read(backend, target, row)
+    return _application_out(row)
+
+
 @app.post("/api/cron/intake", response_model=CronOut)
 def cron_intake(authorization: str | None = Header(default=None)) -> CronOut:
     """Read whatever has arrived, then tell the hiring team once.

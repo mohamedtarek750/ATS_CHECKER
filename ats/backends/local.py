@@ -119,8 +119,31 @@ class LocalBackend:
                     rows[index] = application
                     break
             else:
+                # Not in this vacancy's file. Either it is new, or it has just
+                # been moved here from another vacancy - and this layout keeps
+                # one file per vacancy, so the row it left behind has to go or
+                # the applicant shows up in two places at once.
+                self._forget_elsewhere(application)
                 rows.append(application)
             self._write_applications(application.job_slug, rows)
+
+    def _forget_elsewhere(self, application: Application) -> None:
+        """Drop this id from any other vacancy's file.
+
+        Only ever runs when the row was not where it said it was, so the
+        ordinary update path never pays for the scan. There are as many files
+        as vacancies, which is a small number by construction.
+        """
+        folder = self.root / "applications"
+        if not folder.exists():
+            return
+        for path in folder.glob("*.json"):
+            if path.stem == application.job_slug:
+                continue
+            rows = self.applications(path.stem)
+            kept = [row for row in rows if row.id != application.id]
+            if len(kept) != len(rows):
+                self._write_applications(path.stem, kept)
 
     # -- what stage 2 read, and the file itself ---------------------------
     def profile(self, application_id: str) -> CandidateProfile | None:

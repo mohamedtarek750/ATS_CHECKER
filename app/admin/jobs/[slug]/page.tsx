@@ -5,6 +5,7 @@ import { use, useCallback, useEffect, useState } from "react";
 import { CandidateDetail } from "@/components/CandidateDetail";
 import { Note, Score, Stat } from "@/components/Shell";
 import { StatsPanel } from "@/components/StatsPanel";
+import { assignToVacancy, listPostings, UNASSIGNED_SLUG, type Posting } from "@/lib/api";
 import { downloadCSV, toCSV } from "@/lib/csv";
 import {
   DECISIONS,
@@ -288,7 +289,7 @@ export default function JobDashboard({
 
       <div className="space-y-2">
         {visible.map((row) => (
-          <Row key={row.id} row={row} onChange={patch} />
+          <Row key={row.id} row={row} onChange={patch} reload={load} />
         ))}
       </div>
 
@@ -306,12 +307,95 @@ export default function JobDashboard({
   );
 }
 
+function AssignControl({
+  row,
+  onAssigned,
+}: {
+  row: ApplicationRow;
+  onAssigned: () => void;
+}) {
+  const [vacancies, setVacancies] = useState<Posting[] | null>(null);
+  const [target, setTarget] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    listPostings()
+      .then((all) =>
+        // Only somewhere with a checklist to measure against. Moving a CV to
+        // another empty pile would change nothing.
+        setVacancies(all.filter((p) => p.slug !== UNASSIGNED_SLUG && p.must_total > 0))
+      )
+      .catch(() => setVacancies([]));
+  }, []);
+
+  async function assign() {
+    if (!target) return;
+    setBusy(true);
+    setError("");
+    try {
+      await assignToVacancy(row.id, target);
+      onAssigned();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not move this application.");
+    }
+    setBusy(false);
+  }
+
+  if (vacancies !== null && vacancies.length === 0) {
+    return (
+      <Note>
+        Open a vacancy with some requirements and this CV can be measured
+        against it.
+      </Note>
+    );
+  }
+
+  return (
+    <div className="mb-3">
+      <p className="mb-1.5 text-xs uppercase tracking-wide text-muted">
+        Measure against a vacancy
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          className="field min-w-0 flex-1"
+          value={target}
+          onChange={(e) => setTarget(e.target.value)}
+          disabled={busy || vacancies === null}
+        >
+          <option value="">Choose a vacancy…</option>
+          {(vacancies ?? []).map((p) => (
+            <option key={p.slug} value={p.slug}>
+              {p.title}
+            </option>
+          ))}
+        </select>
+        <button
+          className="btn-primary shrink-0"
+          onClick={assign}
+          disabled={busy || !target}
+        >
+          {busy ? "Measuring…" : "Move and score"}
+        </button>
+      </div>
+      {error && (
+        <div className="mt-2">
+          <Note tone="bad">{error}</Note>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Row({
   row,
   onChange,
+  reload,
 }: {
   row: ApplicationRow;
   onChange: (r: ApplicationRow) => void;
+  /** After a move the applicant is on another vacancy, so this list is stale. */
+  reload: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState(row.note);
@@ -454,6 +538,10 @@ function Row({
                 </ul>
               </Note>
             </div>
+          )}
+
+          {row.tier === "unscored" && (
+            <AssignControl row={row} onAssigned={reload} />
           )}
 
           <div className="mb-1.5 flex flex-wrap items-center gap-2">

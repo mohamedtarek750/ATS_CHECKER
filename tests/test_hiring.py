@@ -19,7 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from ats import backends, intake  # noqa: E402
+from ats import backends, intake, postings  # noqa: E402
 from ats.backends.local import LocalBackend  # noqa: E402
 from ats.job_profile import JobProfile, Requirement  # noqa: E402
 from ats.postings import ENGINE_VERSION, JobPosting, slugify  # noqa: E402
@@ -358,11 +358,20 @@ def environment(**values):
                 os.environ[key] = value
 
 
-def admin_client():
+def admin_client(fresh: bool = True):
+    """A client over storage nobody else has written to.
+
+    Shared storage makes a test pass or fail on what ran before it: the test
+    that checks the holding pen is empty after a move was failing on an
+    application a previous test had left sitting in it, which says nothing
+    about the code under test.
+    """
     from fastapi.testclient import TestClient
 
     from api.index import app
 
+    if fresh:
+        backends._backend = LocalBackend(Path(tempfile.mkdtemp()))
     return TestClient(app)
 
 
@@ -759,6 +768,110 @@ def test_neither_door_configured_still_fails_closed():
         assert client.get("/api/postings").status_code == 503
         detail = client.get("/api/postings").json()["detail"]
         assert "ATS_ADMIN_PASSWORD" in detail
+
+
+def test_a_cv_with_no_vacancy_is_kept_and_never_called_rejected():
+    """Scoring against an empty checklist reports 0% and rejected, which says
+    somebody was turned down when nobody had even looked at them."""
+    client = admin_client()
+    with environment(ATS_AUTH="off"):
+        cv = (ROOT / "samples" / "01_data_analyst_omar.pdf").read_bytes()
+        receipt = client.post(
+            "/api/public/apply",
+            data={"full_name": "Omar", "email": "o@e.com", "phone": ""},
+            files={"file": ("omar.pdf", cv, "application/pdf")},
+        ).json()
+        assert receipt["status"] == "pending"
+
+        client.post(f"/api/public/applications/{receipt['id']}/read")
+        rows = client.get(
+            f"/api/postings/{postings.UNASSIGNED_SLUG}/applications"
+        ).json()["results"]
+        assert len(rows) == 1
+
+        row = rows[0]
+        assert row["status"] == "read", "the CV should still have been read"
+        assert row["tier"] == "unscored"
+        assert row["tier_label"] == "Not scored yet"
+        assert row["tier"] != "rejected", "nobody rejected this person"
+        assert "nothing yet to measure it against" in row["reason"]
+
+
+def test_an_applicant_is_told_nothing_about_how_they_were_assessed():
+    """True of both routes, and here there is genuinely nothing to tell."""
+    client = admin_client()
+    with environment(ATS_AUTH="off"):
+        cv = (ROOT / "samples" / "01_data_analyst_omar.pdf").read_bytes()
+        receipt = client.post(
+            "/api/public/apply",
+            data={"full_name": "Omar", "email": "o@e.com", "phone": ""},
+            files={"file": ("omar.pdf", cv, "application/pdf")},
+        ).json()
+        assert set(receipt) == {"id", "full_name", "status"}
+
+
+def test_moving_a_speculative_cv_onto_a_vacancy_scores_it_there():
+    """A pile that cannot be acted on is somewhere applications go to die."""
+    client = admin_client()
+    with environment(ATS_AUTH="off"):
+        cv = (ROOT / "samples" / "01_data_analyst_omar.pdf").read_bytes()
+        receipt = client.post(
+            "/api/public/apply",
+            data={"full_name": "Omar", "email": "o@e.com", "phone": ""},
+            files={"file": ("omar.pdf", cv, "application/pdf")},
+        ).json()
+        client.post(f"/api/public/applications/{receipt['id']}/read")
+
+        slug = client.post(
+            "/api/postings", json={"job": json.loads(make_job().model_dump_json())}
+        ).json()["slug"]
+
+        moved = client.post(
+            f"/api/applications/{receipt['id']}/assign", json={"job_slug": slug}
+        ).json()
+        assert moved["tier"] in {"accepted", "waiting_list", "rejected"}
+        assert moved["percent"] > 0, "it should have been measured this time"
+
+        # And it is in exactly one place afterwards. The local backend keeps a
+        # file per vacancy, so a move that only writes the new one leaves the
+        # applicant showing up twice.
+        pen = client.get(
+            f"/api/postings/{postings.UNASSIGNED_SLUG}/applications"
+        ).json()["results"]
+        landed = client.get(f"/api/postings/{slug}/applications").json()["results"]
+        assert pen == [], "the applicant is still in the holding pen as well"
+        assert [r["id"] for r in landed] == [receipt["id"]]
+
+
+def test_a_vacancy_with_no_requirements_is_refused_as_a_destination():
+    """Moving a CV to another empty pile would change nothing about it."""
+    client = admin_client()
+    with environment(ATS_AUTH="off"):
+        cv = (ROOT / "samples" / "01_data_analyst_omar.pdf").read_bytes()
+        receipt = client.post(
+            "/api/public/apply",
+            data={"full_name": "Omar", "email": "o@e.com", "phone": ""},
+            files={"file": ("omar.pdf", cv, "application/pdf")},
+        ).json()
+
+        response = client.post(
+            f"/api/applications/{receipt['id']}/assign",
+            json={"job_slug": postings.UNASSIGNED_SLUG},
+        )
+        assert response.status_code == 400
+        assert "nothing would be measured" in response.json()["detail"]
+
+        assert client.post(
+            f"/api/applications/{receipt['id']}/assign",
+            json={"job_slug": "no-such-vacancy"},
+        ).status_code == 404
+
+
+def test_a_real_vacancy_cannot_take_the_reserved_slug():
+    """Otherwise it inherits the pile of speculative CVs sitting in it."""
+    assert postings.slugify("Unassigned") != postings.UNASSIGNED_SLUG
+    assert postings.slugify("unassigned") != postings.UNASSIGNED_SLUG
+    assert postings.slugify("Data Analyst") == "data-analyst"
 
 
 if __name__ == "__main__":
