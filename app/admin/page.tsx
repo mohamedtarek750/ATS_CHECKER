@@ -63,9 +63,16 @@ export default function AdminPage() {
               Open a role, share its link, read who applied
             </p>
           </div>
-          <Link href="/" className="btn-ghost shrink-0 text-sm">
-            One-off screening
-          </Link>
+          <div className="flex shrink-0 gap-2">
+            {/* The other half of the same system: workforce planning says how
+                many people a role is short, this is where they arrive. */}
+            <Link href="/workforce" className="btn-ghost text-sm">
+              ← Workforce planning
+            </Link>
+            <Link href="/" className="btn-ghost text-sm">
+              One-off screening
+            </Link>
+          </div>
         </div>
       </header>
 
