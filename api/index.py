@@ -1343,6 +1343,31 @@ def write_schedule(
     )
 
 
+class SettingOut(BaseModel):
+    name: str
+    purpose: str
+    set: bool
+    length: int
+    #: Present only for settings that are not secret. Empty otherwise.
+    value: str = ""
+    issue: str = ""
+
+
+@app.get("/api/mail/settings", response_model=list[SettingOut])
+def mail_settings(
+    admin: auth.AdminUser = Depends(require_admin),
+) -> list[SettingOut]:
+    """What this deployment actually holds, so nobody has to guess.
+
+    Never returns a secret - a length and a complaint, which is enough to tell
+    a 16-character App Password from an 18-character one with quote marks round
+    it. That is the question that actually comes up, and on a platform where a
+    changed variable does not reach the running deployment until it is
+    redeployed, it is not one anybody can answer by looking at the panel.
+    """
+    return [SettingOut(**row) for row in notify.settings_report()]
+
+
 @app.get("/api/mail/status")
 def mail_status(admin: auth.AdminUser = Depends(require_admin)) -> dict:
     """Whether email is set up, so the dashboard can say so rather than guess."""

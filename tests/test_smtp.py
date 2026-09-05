@@ -343,6 +343,72 @@ def test_a_subject_cannot_carry_a_second_header_into_the_message():
     assert message["To"] == "m@example.com"
 
 
+# -- what the deployment is actually reading ---------------------------------
+def test_the_settings_report_never_returns_a_secret():
+    """It exists to be looked at when nothing is arriving, which is exactly
+    when somebody is most likely to screenshot it."""
+    with environment(**{**SMTP_ON, "RESEND_API_KEY": "re_livekey",
+                        "ATS_SCRIPT_KEY": "k3y", "CRON_SECRET": "cr0n"}):
+        report = {row["name"]: row for row in notify.settings_report()}
+
+    for secret, value in (
+        ("ATS_SMTP_PASSWORD", "not-a-real-password"),
+        ("RESEND_API_KEY", "re_livekey"),
+        ("ATS_SCRIPT_KEY", "k3y"),
+        ("CRON_SECRET", "cr0n"),
+    ):
+        assert report[secret]["set"] is True, secret
+        assert report[secret]["value"] == "", f"{secret} was echoed back"
+        # The length is what answers the question people actually have.
+        assert report[secret]["length"] == len(value), secret
+
+    # Addresses and hosts are not secret and are shown, because a typo in one
+    # is invisible otherwise.
+    assert report["ATS_SMTP_USER"]["value"] == "me@gmail.com"
+    assert report["ATS_SMTP_HOST"]["value"] == "smtp.gmail.com"
+
+
+def test_the_report_names_a_password_wearing_quote_marks():
+    with environment(**{**SMTP_ON, "ATS_SMTP_PASSWORD": "‹abcd›"}):
+        report = {row["name"]: row for row in notify.settings_report()}
+
+    issue = report["ATS_SMTP_PASSWORD"]["issue"]
+    assert "position 1" in issue
+    assert "copied along with the text" in issue
+    assert "abcd" not in issue
+
+
+def test_the_report_catches_the_space_a_hosting_panel_keeps():
+    """Invisible in the box, and fatal. Worth its own check."""
+    with environment(**{**SMTP_ON, "ATS_SMTP_USER": " me@gmail.com "}):
+        report = {row["name"]: row for row in notify.settings_report()}
+    assert "space at the start or end" in report["ATS_SMTP_USER"]["issue"]
+
+
+def test_the_report_names_the_two_urls_people_confuse():
+    with environment(**{**SMTP_ON,
+                        "ATS_SCRIPT_URL": "https://docs.google.com/spreadsheets/d/abc"}):
+        report = {row["name"]: row for row in notify.settings_report()}
+    assert "/exec" in report["ATS_SCRIPT_URL"]["issue"]
+
+
+def test_a_correctly_set_deployment_reports_nothing_to_fix():
+    with environment(**SMTP_ON):
+        assert not [r for r in notify.settings_report() if r["issue"]]
+
+
+def test_every_setting_the_code_reads_is_in_the_report():
+    """A setting added and not listed here is one nobody can check."""
+    source = (ROOT / "ats" / "notify.py").read_text(encoding="utf-8")
+    listed = {row["name"] for row in notify.settings_report()}
+
+    import re
+    read = set(re.findall(r'os\.getenv\("(ATS_[A-Z_]+|RESEND_API_KEY|CRON_SECRET)"',
+                          source))
+    missing = read - listed
+    assert not missing, f"read by the code but not reportable: {sorted(missing)}"
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):

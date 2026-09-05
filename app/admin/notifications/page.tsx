@@ -8,11 +8,13 @@ import { Note } from "@/components/Shell";
 import {
   fetchAlerts,
   fetchSchedule,
+  fetchSettings,
   sendAlerts,
   setSchedule,
   type AlertsResponse,
   type Schedule,
   type SendResult,
+  type Setting,
 } from "@/lib/alerts";
 
 /** Each route, named for what it actually is rather than for its setting. */
@@ -55,6 +57,7 @@ export default function NotificationsPage() {
   const [sent, setSent] = useState<SendResult | null>(null);
   const [sentAt, setSentAt] = useState("");
   const [plan, setPlan] = useState<Schedule | null>(null);
+  const [settings, setSettings] = useState<Setting[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [planError, setPlanError] = useState("");
 
@@ -72,6 +75,9 @@ export default function NotificationsPage() {
     fetchSchedule()
       .then(setPlan)
       .catch(() => setPlan(null));
+    fetchSettings()
+      .then(setSettings)
+      .catch(() => setSettings(null));
   }, [load]);
 
   async function choose(hour: number | null) {
@@ -309,6 +315,9 @@ export default function NotificationsPage() {
           )}
         </div>
 
+        {/* -- what is actually set ----------------------------------------- */}
+        {settings && <SettingsPanel settings={settings} />}
+
         {/* -- how to make one fire ---------------------------------------- */}
         <details className="card px-5 py-4">
           <summary className="cursor-pointer text-sm font-medium">
@@ -381,6 +390,80 @@ export default function NotificationsPage() {
           <p className="text-sm text-muted">Loading…</p>
         )}
       </main>
+    </div>
+  );
+}
+
+/**
+ * What this deployment actually holds.
+ *
+ * Every failure in this area looks the same from outside - nothing arrives -
+ * and the values behind it live in a hosting panel where a corrected one does
+ * NOT reach the running deployment until it is redeployed. So a setting can be
+ * right in the panel and wrong in the code that reads it, with no way to tell
+ * by looking.
+ *
+ * No secret is ever shown, and none needs to be. A length answers the question
+ * that actually comes up: whether a 16-character App Password arrived as 18
+ * characters with quotation marks around it.
+ */
+function SettingsPanel({ settings }: { settings: Setting[] }) {
+  const problems = settings.filter((s) => s.issue);
+  const [open, setOpen] = useState(problems.length > 0);
+
+  return (
+    <div className="card px-5 py-4">
+      <button
+        className="flex w-full items-center justify-between gap-3 text-left"
+        onClick={() => setOpen(!open)}
+      >
+        <span className="text-sm font-medium">
+          What this deployment is actually reading
+        </span>
+        <span className="flex items-center gap-2">
+          {problems.length > 0 && (
+            <span className="chip bg-bad-wash text-bad">
+              {problems.length} to fix
+            </span>
+          )}
+          <span className={`text-muted transition ${open ? "rotate-90" : ""}`}>
+            &rsaquo;
+          </span>
+        </span>
+      </button>
+
+      {open && (
+        <div className="mt-4 space-y-2 border-t pt-4">
+          {settings.map((setting) => (
+            <div key={setting.name} className="text-sm">
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <code className={setting.set ? "" : "text-muted"}>
+                  {setting.name}
+                </code>
+                {setting.set ? (
+                  <span className="min-w-0 break-all text-muted">
+                    {setting.value ||
+                      `${setting.length} characters, not shown`}
+                  </span>
+                ) : (
+                  <span className="text-muted">not set — {setting.purpose}</span>
+                )}
+              </div>
+              {setting.issue && (
+                <p className="mt-0.5 text-sm text-bad">{setting.issue}</p>
+              )}
+            </div>
+          ))}
+
+          <p className="border-t pt-3 text-xs leading-relaxed text-muted">
+            Passwords and keys are never shown — only how long they are, which
+            is enough to spot quotation marks that came along with the value.
+            If a setting here is not what you put in the hosting panel, the
+            deployment has not picked it up yet: changing a variable on Vercel
+            takes effect on the next deploy, not immediately.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

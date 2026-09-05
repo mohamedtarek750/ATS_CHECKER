@@ -234,6 +234,68 @@ def status() -> dict:
     }
 
 
+#: What each setting is for, in the order somebody would fill them in. The
+#: flag says whether the value may be shown back: an address may, a password or
+#: a key never.
+_SETTINGS = [
+    ("ATS_MAIL_TRANSPORT", "which route to force, if any", True),
+    ("RESEND_API_KEY", "Resend's API key", False),
+    ("ATS_MAIL_FROM", "the name and address mail appears to come from", True),
+    ("ATS_SMTP_HOST", "the mail server to connect to", True),
+    ("ATS_SMTP_PORT", "587, or 465 for implicit TLS", True),
+    ("ATS_SMTP_USER", "the mailbox signing in", True),
+    ("ATS_SMTP_PASSWORD", "its password - for Gmail, an App Password", False),
+    ("ATS_SCRIPT_URL", "the Apps Script Web app, ending in /exec", True),
+    ("ATS_SCRIPT_KEY", "must match SHARED_KEY in that script", False),
+    ("ATS_ALERT_EMAILS", "who receives the alert digest", True),
+    ("ATS_HR_EMAILS", "who receives the new-applications digest", True),
+    ("ATS_PUBLIC_URL", "this site's address, for links inside emails", True),
+    ("CRON_SECRET", "carried by the scheduled run", False),
+]
+
+
+def settings_report() -> list[dict]:
+    """What is actually set in this deployment, and what is wrong with it.
+
+    Deliberately never returns a secret. A length is enough to answer the
+    question that actually comes up - whether a 16-character App Password
+    arrived as 18 characters with quote marks around it - and a length cannot
+    be used to sign in as anybody.
+    """
+    report = []
+    for name, purpose, showable in _SETTINGS:
+        raw = os.getenv(name)
+        value = (raw or "").strip()
+
+        issue = ""
+        if value:
+            # The check that matters for the credentials, and harmless for the
+            # rest: a character that cannot survive where the value is used.
+            issue = _not_ascii(name, value)
+            if not issue and raw != raw.strip():
+                issue = (
+                    f"{name} has a space at the start or end. Most panels keep "
+                    f"it, and it is invisible in the box."
+                )
+            if not issue and name == "ATS_SCRIPT_URL" and "/exec" not in value:
+                issue = (
+                    "That is not a deployed Web app URL - it has to end in "
+                    "/exec. A /dev one only works while you are signed in."
+                )
+            if not issue and name == "ATS_SMTP_PORT" and value not in {"587", "465"}:
+                issue = f"Port {value} is unusual here; 587 and 465 are the two that work."
+
+        report.append({
+            "name": name,
+            "purpose": purpose,
+            "set": bool(value),
+            "length": len(value),
+            "value": value if (showable and value) else "",
+            "issue": issue,
+        })
+    return report
+
+
 def safe_name(name: str) -> str:
     """A person's name, fit to put in a subject line. One line, bounded."""
     return _HEADER_BREAK.sub(" ", name).strip()[:80]

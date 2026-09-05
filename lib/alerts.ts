@@ -70,6 +70,21 @@ export interface Schedule {
   detail?: string;
 }
 
+export interface Setting {
+  name: string;
+  purpose: string;
+  set: boolean;
+  length: number;
+  /** Empty for anything secret — only its length is ever reported. */
+  value: string;
+  issue: string;
+}
+
+/** What the deployment actually holds. Never a secret, only its shape. */
+export async function fetchSettings(): Promise<Setting[]> {
+  return unwrapAdmin<Setting[]>(await adminFetch("/api/mail/settings"));
+}
+
 export async function fetchSchedule(): Promise<Schedule> {
   return unwrapAdmin<Schedule>(await adminFetch("/api/schedule"));
 }
