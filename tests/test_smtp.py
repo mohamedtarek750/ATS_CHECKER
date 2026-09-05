@@ -56,7 +56,7 @@ SMTP_ON = dict(
     ATS_SMTP_HOST="smtp.gmail.com",
     ATS_SMTP_PORT="587",
     ATS_SMTP_USER="me@gmail.com",
-    ATS_SMTP_PASSWORD="not-a-real-password",
+    ATS_SMTP_PASSWORD="abcdefghijklmnop",
     ATS_MAIL_FROM="ACUD Careers <me@gmail.com>",
 )
 
@@ -338,7 +338,7 @@ def test_a_refusal_keeps_what_the_server_said_before_guessing_why():
         # And the mailbox is named, because the account it was tried against is
         # as likely to be the mistake as the password.
         assert "me@gmail.com" in detail
-        assert "not-a-real-password" not in detail
+        assert "abcdefghijklmnop" not in detail
 
 
 def test_a_refusal_nobody_has_a_reading_for_still_carries_the_server_line():
@@ -390,7 +390,7 @@ def test_the_settings_report_never_returns_a_secret():
         report = {row["name"]: row for row in notify.settings_report()}
 
     for secret, value in (
-        ("ATS_SMTP_PASSWORD", "not-a-real-password"),
+        ("ATS_SMTP_PASSWORD", "abcdefghijklmnop"),
         ("RESEND_API_KEY", "re_livekey"),
         ("ATS_SCRIPT_KEY", "k3y"),
         ("CRON_SECRET", "cr0n"),
@@ -428,6 +428,52 @@ def test_the_report_names_the_two_urls_people_confuse():
                         "ATS_SCRIPT_URL": "https://docs.google.com/spreadsheets/d/abc"}):
         report = {row["name"]: row for row in notify.settings_report()}
     assert "/exec" in report["ATS_SCRIPT_URL"]["issue"]
+
+
+def test_the_report_knows_what_an_app_password_looks_like():
+    """Gmail answers 5.7.8 to anything it does not accept, so the refusal
+    cannot tell a mistyped App Password from something that was never one.
+
+    Its shape can. Sixteen lowercase letters and nothing else.
+    """
+    gmail = {**SMTP_ON, "ATS_SMTP_HOST": "smtp.gmail.com"}
+
+    cases = [
+        ("abcdefghijklmnop", ""),                       # the real thing
+        ("abcd efgh ijkl mnop", "spaces still in"),     # copied as displayed
+        ("MyG00dPassword!", "exactly 16 characters"),   # the account's own
+        ("MyG00dPass12345!", "16 lowercase letters"),   # right length, wrong kind
+    ]
+    for password, expected in cases:
+        with environment(**{**gmail, "ATS_SMTP_PASSWORD": password}):
+            row = next(
+                r for r in notify.settings_report()
+                if r["name"] == "ATS_SMTP_PASSWORD"
+            )
+        if expected:
+            assert expected in row["issue"], f"{password!r}: {row['issue']!r}"
+        else:
+            assert row["issue"] == "", f"a valid App Password was queried: {row['issue']}"
+        # Whatever it says, it does not say what the password is.
+        assert password not in row["issue"]
+
+
+def test_the_app_password_shape_is_only_checked_against_gmail():
+    """Another provider's password is any string it likes."""
+    with environment(**{**SMTP_ON, "ATS_SMTP_HOST": "smtp.office365.com",
+                        "ATS_SMTP_PASSWORD": "MyG00dPassword!"}):
+        row = next(
+            r for r in notify.settings_report() if r["name"] == "ATS_SMTP_PASSWORD"
+        )
+    assert row["issue"] == ""
+
+
+def test_a_non_gmail_address_signing_in_at_gmail_is_flagged():
+    with environment(**{**SMTP_ON, "ATS_SMTP_HOST": "smtp.gmail.com",
+                        "ATS_SMTP_USER": "careers@acud.eg",
+                        "ATS_SMTP_PASSWORD": "abcdefghijklmnop"}):
+        row = next(r for r in notify.settings_report() if r["name"] == "ATS_SMTP_USER")
+    assert "not a Gmail address" in row["issue"]
 
 
 def test_a_correctly_set_deployment_reports_nothing_to_fix():

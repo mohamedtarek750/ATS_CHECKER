@@ -254,6 +254,41 @@ _SETTINGS = [
 ]
 
 
+#: Sixteen lowercase letters, and nothing else. Google's own format.
+_APP_PASSWORD = re.compile(r"^[a-z]{16}$")
+
+
+def _gmail_password_shape(value: str) -> str:
+    """What is wrong with this as a Gmail App Password, or "".
+
+    Only its shape is examined, never its content: an App Password is sixteen
+    lowercase letters, so anything with a digit, a capital or a symbol in it is
+    something else - most often the account's own password, which Gmail refuses
+    with the same 5.7.8 as a mistyped one.
+    """
+    if _APP_PASSWORD.match(value):
+        return ""
+
+    if " " in value.strip():
+        return (
+            "This looks like a Gmail App Password with its spaces still in. "
+            "Google displays it in four groups; paste the 16 letters joined up."
+        )
+    if len(value) != 16:
+        return (
+            f"A Gmail App Password is exactly 16 characters and this is "
+            f"{len(value)}. If this is the account's own password, Gmail will "
+            f"refuse it - App Passwords are made at "
+            f"myaccount.google.com/apppasswords, and that page only opens once "
+            f"2-Step Verification is on."
+        )
+    return (
+        "A Gmail App Password is 16 lowercase letters with no digits or "
+        "symbols, and this is not. Something other than an App Password is in "
+        "this box - Gmail refuses those with the same error as a wrong one."
+    )
+
+
 def settings_report() -> list[dict]:
     """What is actually set in this deployment, and what is wrong with it.
 
@@ -284,6 +319,23 @@ def settings_report() -> list[dict]:
                 )
             if not issue and name == "ATS_SMTP_PORT" and value not in {"587", "465"}:
                 issue = f"Port {value} is unusual here; 587 and 465 are the two that work."
+            if (
+                not issue
+                and name == "ATS_SMTP_PASSWORD"
+                and "gmail" in (os.getenv("ATS_SMTP_HOST") or "").lower()
+            ):
+                issue = _gmail_password_shape(value)
+            if (
+                not issue
+                and name == "ATS_SMTP_USER"
+                and "gmail" in (os.getenv("ATS_SMTP_HOST") or "").lower()
+                and not value.lower().endswith(("@gmail.com", "@googlemail.com"))
+            ):
+                issue = (
+                    "This is being signed in at smtp.gmail.com but is not a "
+                    "Gmail address. An App Password only works against the "
+                    "account that made it."
+                )
 
         report.append({
             "name": name,
