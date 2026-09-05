@@ -45,6 +45,47 @@ class ScriptError(BackendError):
     """Configuration or transport problem, said plainly enough to act on."""
 
 
+#: Refusals the script sends back that mean something specific about how it was
+#: installed, rather than about the request. Matched on a fragment, because the
+#: rest of Google's wording is a stack trace and a documentation link.
+_MEANINGS = [
+    (
+        "do not have permission",
+        "The deployed script is running on an older authorisation than the "
+        "code it now holds. Apps Script only asks for new permissions when "
+        "somebody runs a function from the editor: open the script, pick "
+        "`authorise` from the function list, press Run, and accept everything "
+        "it asks for. Then Deploy > Manage deployments > edit > New version.",
+    ),
+    (
+        "needs SHARED_KEY",
+        "Set SHARED_KEY at the top of the script to the same value as "
+        "ATS_SCRIPT_KEY. Mail and scheduling refuse without it, because that "
+        "URL answers whoever holds it.",
+    ),
+    (
+        "Unknown operation",
+        "The script deployed on the sheet is older than this app. Paste the "
+        "current scripts/ats_sheet_backend.gs into the editor, then Deploy > "
+        "Manage deployments > edit > New version - which keeps the same URL.",
+    ),
+    (
+        "Service invoked too many times",
+        "The account has sent as much mail as Google allows it today - 100 "
+        "recipients on a gmail.com account, 1,500 on Workspace. It resets 24 "
+        "hours after the first message.",
+    ),
+]
+
+
+def _explain(error: str) -> str:
+    """The script's own words, and what they mean for whoever installed it."""
+    for fragment, meaning in _MEANINGS:
+        if fragment.lower() in error.lower():
+            return f"The script refused: {error[:220]} — {meaning}"
+    return f"The script refused: {error[:300]}"
+
+
 class ScriptBackend:
     name = "Google Sheet (Apps Script)"
 
@@ -104,7 +145,7 @@ class ScriptBackend:
             raise ScriptError(f"The script did not return JSON.{hint}") from exc
 
         if answer.get("error"):
-            raise ScriptError(f"The script refused: {answer['error']}")
+            raise ScriptError(_explain(str(answer["error"])))
         return answer.get("result")
 
     def check(self) -> dict:

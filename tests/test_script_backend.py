@@ -571,6 +571,57 @@ def test_the_script_file_still_implements_every_operation_the_backend_calls():
     assert "/api/cron/intake?source=schedule" in source
 
 
+def test_a_refusal_that_means_something_specific_says_what_to_do():
+    """Google's own wording for these is a stack trace and a link.
+
+    Each of them means one thing about how the script was installed, and each
+    has a different fix - so each is named. The script's words are kept, and
+    the reading follows them.
+    """
+    from ats.backends.script import _explain
+
+    cases = [
+        (
+            "Exception: You do not have permission to call MailApp.sendEmail. "
+            "Required permissions: https://www.googleapis.com/auth/script.send_mail",
+            "`authorise` from the function list",
+        ),
+        ("Unknown operation: get_schedule", "older than this app"),
+        ("Sending mail needs SHARED_KEY set in this script", "same value as"),
+        ("Exception: Service invoked too many times for one day: email",
+         "as much mail as Google allows it today"),
+    ]
+    for said, expected in cases:
+        explained = _explain(said)
+        assert said[:40] in explained, "the script's own words were dropped"
+        assert expected in explained, explained
+
+    # Anything unrecognised still comes through rather than being swallowed.
+    assert "something new entirely" in _explain("something new entirely")
+
+
+def test_the_script_file_carries_the_function_that_grants_permissions():
+    """The step that is not optional and is easy to miss.
+
+    Pasting a new version grants nothing: Apps Script only asks for new
+    permissions when a human runs a function from the editor, and a deployed
+    Web app keeps whatever it was last given. `authorise` exists to be that
+    function - it has to touch every service, or the consent screen asks for
+    less than the code needs.
+    """
+    source = (ROOT / "scripts" / "ats_sheet_backend.gs").read_text(encoding="utf-8")
+    assert "function authorise()" in source
+
+    body = source.split("function authorise()")[1].split(chr(10) + "}")[0]
+    for service in ("MailApp", "ScriptApp", "book()", "folder()"):
+        assert service in body, f"authorise does not touch {service}"
+
+    # It must not actually send anything - it is run by hand, repeatedly.
+    assert "sendEmail" not in body
+    # And the install notes have to say to run it.
+    assert "authorise" in source.split("HOW TO INSTALL")[1].split("*/")[0]
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):

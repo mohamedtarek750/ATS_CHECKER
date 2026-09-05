@@ -19,6 +19,17 @@
  *     → Allow. (That warning is Google telling you the script is unreviewed and
  *     yours; it is asking whether you trust what you just pasted.)
  *  5. Copy the Web app URL. It ends in /exec. That is ATS_SCRIPT_URL.
+ *  6. In the editor, pick `authorise` from the function list and press Run.
+ *     Accept everything it asks for.
+ *
+ * Step 6 is not optional and is easy to miss. Apps Script works out which
+ * permissions this code needs by reading it, but only ASKS for them when a
+ * human runs something from the editor - a deployed Web app keeps whatever it
+ * was last granted. So after pasting a version that can send mail or manage
+ * triggers, the endpoint answers "You do not have permission to call
+ * MailApp.sendEmail" until `authorise` has been run once.
+ *
+ * REPEAT STEP 6 EVERY TIME THIS FILE GAINS A NEW KIND OF CALL.
  *
  * Nothing else is needed. Tabs and headers are created on first use, and a
  * folder for the CVs is created next to the spreadsheet.
@@ -65,6 +76,31 @@ function doPost(e) {
   } catch (err) {
     return reply({ error: String(err) });
   }
+}
+
+/**
+ * Run this once from the editor, by hand, after pasting a new version.
+ *
+ * It touches every service the script uses - the sheet, Drive, mail and
+ * triggers - so the consent screen lists them all together and one Allow
+ * covers the lot. It sends nothing and changes nothing.
+ *
+ * The alternative advice, "run any function", is worse than useless here:
+ * dailyDigest would really send the digest, and doPost needs an event object
+ * that cannot be typed in.
+ */
+function authorise() {
+  var report = [
+    "Sheet:     " + book().getName(),
+    "Folder:    " + folder().getName(),
+    "Mail left today: " + MailApp.getRemainingDailyQuota(),
+    "Triggers:  " + ScriptApp.getProjectTriggers().length,
+    "Timezone:  " + Session.getScriptTimeZone(),
+    "Shared key set: " + (SHARED_KEY ? "yes" : "NO - mail and scheduling will refuse"),
+  ].join("\n");
+
+  Logger.log(report);
+  return report;
 }
 
 /** A browser opening the URL should see something other than an error. */
