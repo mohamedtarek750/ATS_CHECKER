@@ -152,6 +152,10 @@ class ScriptBackend:
         )
         return posting
 
+    def delete_posting(self, slug: str) -> int:
+        removed = self._call("delete_posting", slug=slug) or {}
+        return int(removed.get("applications") or 0)
+
     # -- applications ------------------------------------------------------
     @staticmethod
     def _to_application(record: dict) -> Application:

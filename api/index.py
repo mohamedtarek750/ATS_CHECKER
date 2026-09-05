@@ -646,6 +646,12 @@ class ReceiptOut(BaseModel):
     status: str
 
 
+class DeletedPosting(BaseModel):
+    slug: str
+    title: str
+    applications: int
+
+
 def _posting_out(posting, rows: list | None = None) -> PostingOut:
     return PostingOut(
         slug=posting.slug,
@@ -836,6 +842,44 @@ def set_posting_status(
     posting.status = status
     backend.save_posting(posting)
     return _posting_out(posting, backend.applications(slug))
+
+
+@app.delete("/api/postings/{slug}", response_model=DeletedPosting)
+def delete_posting(
+    slug: str,
+    applications: str = "keep",
+    admin: auth.AdminUser = Depends(require_admin),
+) -> DeletedPosting:
+    """Remove a vacancy. Refuses to take applicants with it by accident.
+
+    A vacancy with people in it cannot be deleted by a plain call: the caller
+    has to pass applications=delete, which is the difference between a stray
+    request and somebody who has been told what they are about to lose. The
+    holding pen is not a vacancy anybody opened and is not one anybody can
+    remove - deleting it would silently drop every CV sent in without a job.
+    """
+    if slug == postings.UNASSIGNED_SLUG:
+        raise HTTPException(
+            400,
+            "That is where CVs sent without a job are kept, not a vacancy. "
+            "Remove the applications inside it instead.",
+        )
+
+    backend = get_backend()
+    posting = _require_posting(slug)
+    waiting = backend.applications(slug)
+
+    if waiting and applications != "delete":
+        raise HTTPException(
+            409,
+            f"{posting.title} has {len(waiting)} application"
+            f"{'' if len(waiting) == 1 else 's'}. Deleting the job deletes them "
+            f"and their CVs too - say applications=delete if that is what you "
+            f"mean, or close the job instead to stop new ones.",
+        )
+
+    removed = backend.delete_posting(slug)
+    return DeletedPosting(slug=slug, title=posting.title, applications=removed)
 
 
 @app.get("/api/public/postings", response_model=list[PublicPostingOut])

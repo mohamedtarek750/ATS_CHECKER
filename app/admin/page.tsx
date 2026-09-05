@@ -7,6 +7,7 @@ import JobStep from "@/components/JobStep";
 import { Note } from "@/components/Shell";
 import {
   createPosting,
+  deletePosting,
   health,
   listPostings,
   setPostingStatus,
@@ -49,6 +50,13 @@ export default function AdminPage() {
     const updated = await setPostingStatus(posting.slug, next);
     setPostings((current) =>
       (current ?? []).map((p) => (p.slug === updated.slug ? updated : p))
+    );
+  }
+
+  async function remove(posting: Posting) {
+    await deletePosting(posting.slug, posting.applications > 0);
+    setPostings((current) =>
+      (current ?? []).filter((p) => p.slug !== posting.slug)
     );
   }
 
@@ -126,7 +134,12 @@ export default function AdminPage() {
 
         <div className="space-y-3">
           {(postings ?? []).map((posting) => (
-            <PostingCard key={posting.slug} posting={posting} onToggle={toggle} />
+            <PostingCard
+              key={posting.slug}
+              posting={posting}
+              onToggle={toggle}
+              onDelete={remove}
+            />
           ))}
         </div>
       </main>
@@ -137,11 +150,19 @@ export default function AdminPage() {
 function PostingCard({
   posting,
   onToggle,
+  onDelete,
 }: {
   posting: Posting;
   onToggle: (p: Posting) => void;
+  onDelete: (p: Posting) => Promise<void>;
 }) {
   const [copied, setCopied] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  // Not a vacancy: it is where CVs sent without one are kept, and the API
+  // refuses to delete it for the same reason.
+  const isHoldingPen = posting.slug === "unassigned";
+  const [deleting, setDeleting] = useState(false);
+  const [failed, setFailed] = useState("");
   const link =
     typeof window === "undefined"
       ? `/apply/${posting.slug}`
@@ -215,7 +236,91 @@ function PostingCard({
         <Link href={`/admin/jobs/${posting.slug}`} className="btn-ghost text-sm">
           Open
         </Link>
+        {!isHoldingPen && (
+          <button
+            className="btn-ghost text-sm text-bad"
+            onClick={() => setConfirming(true)}
+          >
+            Delete
+          </button>
+        )}
       </div>
+
+      {/* Asked here rather than in a window.confirm, so the count is on the
+          screen next to the button that acts on it. A job with people in it is
+          usually one somebody wants to CLOSE, and that is offered first. */}
+      {confirming && (
+        <div className="mt-3 rounded-lg border border-bad/40 bg-bad-wash px-4 py-3">
+          <p className="text-sm font-medium">Delete {posting.title}?</p>
+          <p className="mt-1 text-sm text-muted">
+            {posting.applications > 0 ? (
+              <>
+                This also deletes {posting.applications} application
+                {posting.applications === 1 ? "" : "s"} and the CV
+                {posting.applications === 1 ? "" : "s"} sent with{" "}
+                {posting.applications === 1 ? "it" : "them"}. Nothing here can
+                be brought back. To stop new applications without losing these,
+                close the job instead.
+              </>
+            ) : (
+              <>Nobody has applied to it. Nothing else is lost.</>
+            )}
+          </p>
+
+          {failed && (
+            <p className="mt-2 text-sm text-bad">{failed}</p>
+          )}
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              className="btn-danger text-sm"
+              disabled={deleting}
+              onClick={async () => {
+                setDeleting(true);
+                setFailed("");
+                try {
+                  await onDelete(posting);
+                } catch (e) {
+                  setFailed(
+                    e instanceof Error ? e.message : "Could not delete it."
+                  );
+                  setDeleting(false);
+                }
+              }}
+            >
+              {deleting
+                ? "Deleting…"
+                : posting.applications > 0
+                  ? `Delete the job and ${posting.applications} application${
+                      posting.applications === 1 ? "" : "s"
+                    }`
+                  : "Delete the job"}
+            </button>
+            <button
+              className="btn-ghost text-sm"
+              disabled={deleting}
+              onClick={() => {
+                setConfirming(false);
+                setFailed("");
+              }}
+            >
+              Keep it
+            </button>
+            {posting.applications > 0 && posting.status === "open" && (
+              <button
+                className="btn-ghost text-sm"
+                disabled={deleting}
+                onClick={() => {
+                  setConfirming(false);
+                  onToggle(posting);
+                }}
+              >
+                Close it instead
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

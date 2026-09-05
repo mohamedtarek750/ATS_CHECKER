@@ -574,6 +574,23 @@ export async function setPostingStatus(
   );
 }
 
+/**
+ * Remove a vacancy.
+ *
+ * `withApplications` is not a convenience flag - the server refuses to delete a
+ * job that people have applied to unless it is set, so this argument is the
+ * caller stating that the confirmation naming the count was actually shown.
+ */
+export async function deletePosting(
+  slug: string,
+  withApplications = false
+): Promise<{ slug: string; title: string; applications: number }> {
+  const query = withApplications ? "?applications=delete" : "";
+  return unwrapAdmin(
+    await adminFetch(`/api/postings/${slug}${query}`, { method: "DELETE" })
+  );
+}
+
 export async function publicPosting(slug: string): Promise<PublicPosting> {
   return unwrap<PublicPosting>(await fetch(`/api/public/postings/${slug}`));
 }

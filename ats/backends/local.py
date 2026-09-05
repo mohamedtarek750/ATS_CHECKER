@@ -70,6 +70,23 @@ class LocalBackend:
             )
         return posting
 
+    def delete_posting(self, slug: str) -> int:
+        """The vacancy, its applications, and the CVs and profiles under it.
+
+        Everything this vacancy owns lives in four folders keyed by its slug or
+        by an application id, so removing it is four deletes and no scan of the
+        others.
+        """
+        with self._lock:
+            rows = self.applications(slug)
+            for row in rows:
+                for path in (self.root / "cvs").glob(f"{row.id}.*"):
+                    path.unlink(missing_ok=True)
+                (self.root / "profiles" / f"{row.id}.json").unlink(missing_ok=True)
+            self._applications_path(slug).unlink(missing_ok=True)
+            self._posting_path(slug).unlink(missing_ok=True)
+        return len(rows)
+
     # -- applications -----------------------------------------------------
     def _applications_path(self, job_slug: str) -> Path:
         return self.root / "applications" / f"{job_slug}.json"

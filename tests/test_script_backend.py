@@ -118,6 +118,18 @@ class FakeScript:
             self.applications.append(record)
             return record
 
+        if op == "delete_posting":
+            slug = payload["slug"]
+            going = [a for a in self.applications if a["job_slug"] == slug]
+            for row in going:
+                for name in (row.get("cv_ref"), row["id"] + ".json"):
+                    self.files.pop(name, None)
+            self.applications = [
+                a for a in self.applications if a["job_slug"] != slug
+            ]
+            self.postings = [p for p in self.postings if p["slug"] != slug]
+            return {"slug": slug, "applications": len(going)}
+
         if op == "put_file":
             self.files[payload["name"]] = base64.b64decode(payload["data"])
             return {
@@ -323,6 +335,60 @@ def test_it_satisfies_the_same_protocol_as_every_other_backend():
     ]
     missing = [name for name in required if not hasattr(ScriptBackend, name)]
     assert not missing, f"ScriptBackend is missing: {missing}"
+
+
+def test_deleting_a_posting_takes_its_applications_and_files():
+    """One call, not a loop from the caller.
+
+    Apps Script is slow enough that a delete built as "read all, then one
+    request per row" would time out on a vacancy with any real number of
+    applicants. The backend asks for the whole job to go and the script does
+    the walking.
+    """
+    with script() as fake, environment(ATS_SCRIPT_URL=SCRIPT_URL, ATS_SCRIPT_KEY=None):
+        backend = ScriptBackend()
+        backend.save_posting(
+            JobPosting(slug="data-analyst", title="Data Analyst", summary="",
+                       profile=make_job())
+        )
+        backend.save_posting(
+            JobPosting(slug="kept", title="Kept", summary="", profile=make_job())
+        )
+        backend.add_application(
+            Application(id="a1", job_slug="data-analyst", full_name="Omar",
+                        email="o@e.com", phone=""),
+            b"%PDF-1.4 cv", "omar.pdf",
+        )
+        backend.add_application(
+            Application(id="a2", job_slug="kept", full_name="Sara",
+                        email="s@e.com", phone=""),
+            b"%PDF-1.4 cv", "sara.pdf",
+        )
+
+        removed = backend.delete_posting("data-analyst")
+        assert removed == 1
+        assert [p.slug for p in backend.postings()] == ["kept"]
+        assert backend.applications("data-analyst") == []
+        assert "a1.pdf" not in fake.files
+
+        # And the vacancy next to it is untouched, file included.
+        assert len(backend.applications("kept")) == 1
+        assert backend.cv_bytes("a2") == b"%PDF-1.4 cv"
+
+
+def test_the_script_file_implements_every_operation_the_backend_calls():
+    """The two halves are deployed separately and can drift apart.
+
+    The .gs file is pasted into the sheet by hand. An operation added here and
+    not there fails only in production, on the first person to press the
+    button - so the file is read and checked instead.
+    """
+    source = (ROOT / "scripts" / "ats_sheet_backend.gs").read_text(encoding="utf-8")
+    for op in (
+        "ping", "postings", "save_posting", "applications", "save_application",
+        "delete_posting", "put_file", "get_file",
+    ):
+        assert f"{op}: function" in source, f"the script has no {op} handler"
 
 
 if __name__ == "__main__":

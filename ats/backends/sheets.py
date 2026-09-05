@@ -304,6 +304,55 @@ class SheetsBackend:
         self._update_row(POSTINGS_TAB, POSTING_COLUMNS, "slug", posting.slug, record)
         return posting
 
+    def delete_posting(self, slug: str) -> int:
+        """Drop the vacancy's row, its applications' rows, and their files.
+
+        The tabs are rewritten without the removed rows rather than deleted
+        row by row: Sheets numbers rows as they move, so a row-at-a-time delete
+        has to re-read between each one to know where the next one went.
+        """
+        going = self.applications(slug)
+        for row in going:
+            for name in (row.cv_ref, f"{row.id}.json"):
+                file_id = self._find_in_drive(name) if name else None
+                if file_id:
+                    self._clients()[1].files().delete(fileId=file_id).execute()
+
+        if going:
+            kept = [
+                r
+                for r in self._read_tab(APPLICATIONS_TAB, APPLICATION_COLUMNS)
+                if r.get("job_slug") != slug
+            ]
+            self._rewrite_tab(APPLICATIONS_TAB, APPLICATION_COLUMNS, kept)
+
+        kept_postings = [
+            r
+            for r in self._read_tab(POSTINGS_TAB, POSTING_COLUMNS)
+            if r.get("slug") != slug
+        ]
+        self._rewrite_tab(POSTINGS_TAB, POSTING_COLUMNS, kept_postings)
+        return len(going)
+
+    def _rewrite_tab(self, tab: str, columns: list[str], rows: list[dict]) -> None:
+        """Replace everything below the header with these rows."""
+        sheets, _ = self._clients()
+        last = _column_letter(len(columns) - 1)
+        sheets.spreadsheets().values().clear(
+            spreadsheetId=self.sheet_id, range=f"{tab}!A2:{last}", body={}
+        ).execute()
+        if rows:
+            sheets.spreadsheets().values().update(
+                spreadsheetId=self.sheet_id,
+                range=f"{tab}!A2",
+                valueInputOption="RAW",
+                body={
+                    "values": [
+                        [str(r.get(c, "")) for c in columns] for r in rows
+                    ]
+                },
+            ).execute()
+
     # -- applications -----------------------------------------------------
     @staticmethod
     def _to_application(record: dict) -> Application:

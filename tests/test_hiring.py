@@ -378,13 +378,19 @@ def admin_client(fresh: bool = True):
 #: Everything that can see an applicant. If a route is added and not listed
 #: here, that is the point at which somebody should notice.
 GUARDED = [
+    ("GET", "/api/auth/me"),
     ("GET", "/api/postings"),
     ("POST", "/api/postings"),
+    ("POST", "/api/postings/data-analyst/status"),
+    ("DELETE", "/api/postings/data-analyst"),
     ("GET", "/api/postings/data-analyst/applications"),
     ("POST", "/api/postings/data-analyst/read"),
+    ("GET", "/api/postings/data-analyst/stats"),
     ("GET", "/api/applications/abc123"),
     ("POST", "/api/applications/abc123/decision"),
+    ("POST", "/api/applications/abc123/assign"),
     ("GET", "/api/cv-file/abc123"),
+    ("GET", "/api/mail/status"),
 ]
 
 
@@ -948,6 +954,111 @@ def test_a_closed_job_is_not_offered_to_applicants():
 
         client.post(f"/api/postings/{slug}/status?status=closed")
         assert client.get("/api/public/postings").json() == []
+
+
+def test_an_empty_job_can_be_deleted_outright():
+    client = admin_client()
+    with environment(ATS_AUTH="off"):
+        slug = client.post(
+            "/api/postings", json={"job": json.loads(make_job().model_dump_json())}
+        ).json()["slug"]
+
+        gone = client.delete(f"/api/postings/{slug}")
+        assert gone.status_code == 200, gone.text
+        assert gone.json()["applications"] == 0
+
+        assert client.get("/api/postings").json() == []
+        # And it stops being offered to applicants at the same moment.
+        assert client.get("/api/public/postings").json() == []
+
+
+def test_deleting_a_job_with_applicants_needs_saying_so():
+    """The count is in the refusal, because that is the fact being consented to.
+
+    A recruiter who deletes a vacancy is usually clearing up a mistake. One who
+    deletes a vacancy that people have applied to is destroying CVs, and the
+    only difference between the two calls is a number they have to be shown.
+    """
+    client = admin_client()
+    with environment(ATS_AUTH="off"):
+        cv = (ROOT / "samples" / "01_data_analyst_omar.pdf").read_bytes()
+        slug = client.post(
+            "/api/postings", json={"job": json.loads(make_job().model_dump_json())}
+        ).json()["slug"]
+        receipt = client.post(
+            f"/api/public/postings/{slug}/apply",
+            data={"full_name": "Omar", "email": "o@e.com", "phone": ""},
+            files={"file": ("omar.pdf", cv, "application/pdf")},
+        ).json()
+        client.post(f"/api/public/applications/{receipt['id']}/read")
+
+        refused = client.delete(f"/api/postings/{slug}")
+        assert refused.status_code == 409
+        assert "1 application" in refused.json()["detail"]
+        # Refused means nothing happened, not "happened but complained".
+        assert len(client.get("/api/postings").json()) == 1
+        assert client.get(f"/api/cv-file/{receipt['id']}").status_code == 200
+
+        gone = client.delete(f"/api/postings/{slug}?applications=delete")
+        assert gone.status_code == 200, gone.text
+        assert gone.json()["applications"] == 1
+        assert client.get("/api/postings").json() == []
+        # The CV goes with it. A file left behind that no row points at is a
+        # copy of somebody's CV nobody knows is still there.
+        assert client.get(f"/api/cv-file/{receipt['id']}").status_code == 404
+
+
+def test_the_holding_pen_cannot_be_deleted():
+    """It is not a vacancy, and deleting it would drop every unassigned CV."""
+    client = admin_client()
+    with environment(ATS_AUTH="off"):
+        cv = (ROOT / "samples" / "01_data_analyst_omar.pdf").read_bytes()
+        client.post(
+            "/api/public/apply",
+            data={"full_name": "Omar", "email": "o@e.com", "phone": ""},
+            files={"file": ("omar.pdf", cv, "application/pdf")},
+        )
+
+        refused = client.delete(
+            f"/api/postings/{postings.UNASSIGNED_SLUG}?applications=delete"
+        )
+        assert refused.status_code == 400
+        assert len(client.get("/api/postings").json()) == 1
+
+
+def test_deleting_one_job_leaves_the_others_alone():
+    client = admin_client()
+    with environment(ATS_AUTH="off"):
+        first = make_job()
+        second = make_job()
+        second.title = "Something else entirely"
+
+        a = client.post(
+            "/api/postings", json={"job": json.loads(first.model_dump_json())}
+        ).json()["slug"]
+        b = client.post(
+            "/api/postings", json={"job": json.loads(second.model_dump_json())}
+        ).json()["slug"]
+
+        cv = (ROOT / "samples" / "01_data_analyst_omar.pdf").read_bytes()
+        kept = client.post(
+            f"/api/public/postings/{b}/apply",
+            data={"full_name": "Omar", "email": "o@e.com", "phone": ""},
+            files={"file": ("omar.pdf", cv, "application/pdf")},
+        ).json()
+
+        client.delete(f"/api/postings/{a}")
+
+        remaining = client.get("/api/postings").json()
+        assert [p["slug"] for p in remaining] == [b]
+        assert remaining[0]["applications"] == 1
+        assert client.get(f"/api/cv-file/{kept['id']}").status_code == 200
+
+
+def test_deleting_a_job_that_is_not_there_says_so():
+    client = admin_client()
+    with environment(ATS_AUTH="off"):
+        assert client.delete("/api/postings/never-existed").status_code == 404
 
 
 if __name__ == "__main__":

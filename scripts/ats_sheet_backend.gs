@@ -130,6 +130,24 @@ function upsert(name, columns, record, keyColumn) {
   sheet.appendRow(values);
 }
 
+/** Replace everything under the header with these rows. */
+function rewrite(name, columns, records) {
+  var sheet = tab(name, columns);
+  var rows = sheet.getLastRow();
+  if (rows > 1) {
+    sheet.getRange(2, 1, rows - 1, columns.length).clearContent();
+  }
+  if (!records.length) return;
+
+  var values = records.map(function (record) {
+    return columns.map(function (column) {
+      var value = record[column];
+      return value === undefined || value === null ? "" : value;
+    });
+  });
+  sheet.getRange(2, 1, values.length, columns.length).setValues(values);
+}
+
 /** The folder holding CVs and parsed profiles, made if it is not there yet. */
 function folder() {
   var parents = DriveApp.getFileById(book().getId()).getParents();
@@ -157,6 +175,46 @@ var HANDLERS = {
   save_posting: function (request) {
     upsert("postings", POSTING_COLUMNS, request.record, "slug");
     return request.record;
+  },
+
+  /**
+   * A vacancy, its applications, and their files.
+   *
+   * The tabs are rewritten without the removed rows in one setValues call.
+   * Deleting rows one at a time renumbers the ones below, so the second
+   * delete would land on the wrong row.
+   */
+  delete_posting: function (request) {
+    var slug = String(request.slug || "");
+    if (!slug) throw new Error("delete_posting needs a slug.");
+
+    var apps = readTab("applications", APPLICATION_COLUMNS);
+    var going = [];
+    var staying = [];
+    for (var i = 0; i < apps.length; i++) {
+      (apps[i].job_slug === slug ? going : staying).push(apps[i]);
+    }
+
+    for (var g = 0; g < going.length; g++) {
+      var names = [going[g].cv_ref, going[g].id + ".json"];
+      for (var n = 0; n < names.length; n++) {
+        if (!names[n]) continue;
+        var file = fileNamed(names[n]);
+        if (file) file.setTrashed(true);
+      }
+    }
+
+    if (going.length) rewrite("applications", APPLICATION_COLUMNS, staying);
+
+    var postings = readTab("postings", POSTING_COLUMNS);
+    var kept = postings.filter(function (row) {
+      return row.slug !== slug;
+    });
+    if (kept.length !== postings.length) {
+      rewrite("postings", POSTING_COLUMNS, kept);
+    }
+
+    return { slug: slug, applications: going.length };
   },
 
   applications: function (request) {

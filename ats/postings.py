@@ -172,6 +172,15 @@ class Backend(Protocol):
 
     def save_posting(self, posting: JobPosting) -> JobPosting: ...
 
+    def delete_posting(self, slug: str) -> int:
+        """Remove a vacancy and everything filed under it.
+
+        Returns how many applications went with it. Backends do this rather
+        than the caller looping, because each one knows how to drop a row and
+        a stored CV in a single pass over its own storage.
+        """
+        ...
+
     def applications(self, job_slug: str) -> list[Application]: ...
 
     def application(self, application_id: str) -> Application | None: ...
