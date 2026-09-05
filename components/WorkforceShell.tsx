@@ -8,7 +8,9 @@ import { FORECAST } from "@/lib/workforce";
 
 const PAGES = [
   { href: "/workforce", label: "Overview" },
+  { href: "/workforce/scenarios", label: "What if" },
   { href: "/workforce/roles", label: "Roles" },
+  { href: "/workforce/compensation", label: "Compensation" },
   { href: "/workforce/performance", label: "Performance" },
   { href: "/workforce/turnover", label: "Turnover" },
   { href: "/workforce/cost", label: "Hiring cost" },

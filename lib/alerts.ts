@@ -43,8 +43,15 @@ export interface Alert {
   title: string;
   /** Why it is being said, and what it is based on. */
   detail: string;
-  /** "forecast" = frozen model. "live" = the ATS, current as of this page. */
-  source: "forecast" | "live";
+  /**
+   * Which kind of number this rests on, and it is never left to the reader to
+   * work out:
+   *   forecast - the frozen workforce model, exported once and unchanged.
+   *   live     - the ATS, current as of this page load.
+   *   payroll  - the pay table, which in this build is simulated.
+   * A finding that reads more than one is labelled with the weakest of them.
+   */
+  source: "forecast" | "live" | "payroll";
   /** The department the finding is about, when it is about one. */
   department?: string;
   /** Set when the alert belongs to one vacancy, so its page can show it. */

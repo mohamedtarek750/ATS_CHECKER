@@ -46,21 +46,29 @@ export function Stat({
   value,
   label,
   tone = "plain",
+  note,
 }: {
   value: number | string;
   label: string;
-  tone?: "plain" | "good" | "warn";
+  tone?: "plain" | "good" | "warn" | "bad";
+  /** What changed, or what the figure rests on. A number alone rarely says. */
+  note?: string;
 }) {
   const tint =
     tone === "good"
       ? "border-good/25 bg-good-wash"
       : tone === "warn"
         ? "border-warn/25 bg-warn-wash"
-        : "border-line raised";
+        : tone === "bad"
+          ? "border-bad/25 bg-bad-wash"
+          : "border-line raised";
   return (
     <div className={`rounded-lg border px-4 py-3 ${tint}`}>
       <div className="text-2xl font-semibold tabular-nums leading-none">{value}</div>
       <div className="mt-1 text-xs text-muted">{label}</div>
+      {note && (
+        <div className="mt-1 text-xs font-medium tabular-nums">{note}</div>
+      )}
     </div>
   );
 }

@@ -5,6 +5,12 @@ import { useState } from "react";
 import { FORECAST } from "@/lib/workforce";
 import type { Alert, AlertLevel } from "@/lib/alerts";
 
+const SOURCE_LABEL: Record<Alert["source"], string> = {
+  forecast: "Forecast",
+  live: "Live",
+  payroll: "Payroll",
+};
+
 const TONE: Record<AlertLevel, { chip: string; label: string; edge: string }> = {
   critical: {
     chip: "bg-bad-wash text-bad",
@@ -42,7 +48,9 @@ export function Alerts({
 
   const shown = all ? alerts : alerts.slice(0, limit);
   const hidden = alerts.length - shown.length;
-  const fromForecast = alerts.some((a) => a.source === "forecast");
+  // Only the sources actually present are explained. A standing paragraph
+  // about data this panel is not showing is a paragraph nobody finishes.
+  const uses = (source: Alert["source"]) => alerts.some((a) => a.source === source);
 
   return (
     <section className="space-y-2.5">
@@ -70,7 +78,7 @@ export function Alerts({
                   frozen forecast with live counts, and the difference decides
                   how much weight a reader should put on it. */}
               <span className="chip raised text-muted">
-                {alert.source === "forecast" ? "Forecast" : "Live"}
+                {SOURCE_LABEL[alert.source]}
               </span>
             </div>
 
@@ -102,12 +110,27 @@ export function Alerts({
         </button>
       )}
 
-      {fromForecast && (
+      {(uses("forecast") || uses("payroll")) && (
         <p className="pt-0.5 text-xs leading-relaxed text-muted">
-          Anything marked <strong className="text-ink">Forecast</strong> rests on
-          the workforce model — a {FORECAST.model} trained on{" "}
-          {FORECAST.trainedOn} and unchanged since, not live HR data. Application
-          counts marked <strong className="text-ink">Live</strong> are current.
+          {uses("forecast") && (
+            <>
+              Anything marked <strong className="text-ink">Forecast</strong>{" "}
+              rests on the workforce model — a {FORECAST.model} trained on{" "}
+              {FORECAST.trainedOn} and unchanged since, not live HR data.{" "}
+            </>
+          )}
+          {uses("payroll") && (
+            <>
+              Anything marked <strong className="text-ink">Payroll</strong> rests
+              on simulated pay data, not ACUD&rsquo;s payroll.{" "}
+            </>
+          )}
+          {uses("live") && (
+            <>
+              Counts marked <strong className="text-ink">Live</strong> are
+              current as of this page.
+            </>
+          )}
         </p>
       )}
     </section>

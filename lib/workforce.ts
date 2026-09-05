@@ -12,6 +12,8 @@
  * to trust the wrong one. Every page built on this data says where it came from.
  */
 
+import type { RoleState } from "./scenarios";
+
 export interface Department {
   Department: string;
   Current: number;
@@ -254,4 +256,30 @@ export function urgency(gap: number, current: number): "critical" | "high" | "mo
   if (share >= 0.2) return "critical";
   if (share >= 0.12) return "high";
   return "moderate";
+}
+
+/**
+ * The three tables above, joined into the one shape the scenario model wants.
+ *
+ * They are separate tables because they came out of the model as separate
+ * tables, and the join belongs here rather than in the model: `runScenario`
+ * takes rows so that it can be handed real HR data one day without being
+ * rewritten.
+ *
+ * Turnover is 0 where none was recorded. That is the honest default - a role
+ * with no measurement is not a role where nobody leaves, but inventing a rate
+ * for it would put a made-up number into every total on the page.
+ */
+export function roleStates(): RoleState[] {
+  const level = new Map(COST_ROLES.map((c) => [c.role, c.level]));
+  const churn = new Map(TURNOVER.map((t) => [t.role, t.turnover_rate]));
+
+  return ROLES.map((role) => ({
+    department: role.Department,
+    role: role.Job_Role,
+    current: role.Current_Employees,
+    demand: role.Predicted_Workforce_Demand,
+    turnoverRate: churn.get(role.Job_Role) ?? 0,
+    level: level.get(role.Job_Role) ?? "Mid",
+  }));
 }
