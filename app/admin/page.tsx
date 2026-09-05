@@ -10,9 +10,11 @@ import {
   deletePosting,
   health,
   listPostings,
+  mailStatus,
   setPostingStatus,
   type Health,
   type JobProfile,
+  type MailStatus,
   type Posting,
 } from "@/lib/api";
 
@@ -20,6 +22,7 @@ import {
 export default function AdminPage() {
   const [postings, setPostings] = useState<Posting[] | null>(null);
   const [server, setServer] = useState<Health | null>(null);
+  const [mail, setMail] = useState<MailStatus | null>(null);
   const [job, setJob] = useState<JobProfile | null>(null);
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -28,6 +31,7 @@ export default function AdminPage() {
   useEffect(() => {
     listPostings().then(setPostings).catch(() => setPostings([]));
     health().then(setServer).catch(() => setServer(null));
+    mailStatus().then(setMail).catch(() => setMail(null));
   }, []);
 
   async function open() {
@@ -79,6 +83,20 @@ export default function AdminPage() {
       </header>
 
       <main className="mx-auto max-w-4xl space-y-6 px-6 py-8">
+        {/* Only when it is off. A banner saying email works would be on every
+            page load forever, and this one is here to be acted on. */}
+        {mail && !mail.configured && (
+          <Note>
+            <strong className="text-ink">
+              Applicants are not being sent a thank-you.
+            </strong>{" "}
+            Their CV still arrives and everything here still works — nobody is
+            told it was received. Set <code>RESEND_API_KEY</code> and{" "}
+            <code>ATS_MAIL_FROM</code> in the deployment&rsquo;s environment to
+            switch it on.
+          </Note>
+        )}
+
         {!creating && (
           <button className="btn-primary" onClick={() => setCreating(true)}>
             Add a job

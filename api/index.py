@@ -20,6 +20,7 @@ import tempfile
 from pathlib import Path
 
 from fastapi import (
+    BackgroundTasks,
     Depends,
     FastAPI,
     File,
@@ -915,6 +916,7 @@ def public_posting(slug: str) -> PublicPostingOut:
 @app.post("/api/public/postings/{slug}/apply", response_model=ReceiptOut)
 def apply(
     slug: str,
+    background: BackgroundTasks,
     full_name: str = Form(...),
     email: str = Form(...),
     phone: str = Form(""),
@@ -938,8 +940,10 @@ def apply(
         raise HTTPException(400, str(exc)) from exc
 
     # The CV is stored by this point, so a mail outage costs a receipt and never
-    # an application. `send` reports rather than raises, for exactly this.
-    notify.application_received(row, posting)
+    # an application - `send` reports rather than raises, for exactly this. It
+    # runs after the response as well, so a slow provider cannot hold somebody
+    # on a spinner waiting for a thank-you.
+    background.add_task(notify.application_received, row, posting)
 
     return ReceiptOut(id=row.id, full_name=row.full_name, status=row.status)
 
@@ -1187,6 +1191,7 @@ def _holding_pen() -> postings.JobPosting:
 
 @app.post("/api/public/apply", response_model=ReceiptOut)
 def apply_without_a_vacancy(
+    background: BackgroundTasks,
     full_name: str = Form(...),
     email: str = Form(...),
     phone: str = Form(""),
@@ -1210,7 +1215,7 @@ def apply_without_a_vacancy(
     except intake.IntakeError as exc:
         raise HTTPException(400, str(exc)) from exc
 
-    notify.application_received(row, posting)
+    background.add_task(notify.application_received, row, posting)
     return ReceiptOut(id=row.id, full_name=row.full_name, status=row.status)
 
 

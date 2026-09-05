@@ -37,6 +37,8 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 
+from .postings import UNASSIGNED_SLUG
+
 RESEND_ENDPOINT = "https://api.resend.com/emails"
 TIMEOUT_SECONDS = 10
 
@@ -145,31 +147,58 @@ def _page(body: str) -> str:
 
 
 def application_received(application, posting) -> Sent:
-    """The receipt. Says what happens next, and promises nothing about outcome."""
+    """The receipt. Says what happens next, and promises nothing about outcome.
+
+    A CV sent without choosing a role gets the same message with the role taken
+    out of it. The holding pen is titled "Applicants without a job description"
+    - a name written for the recruiter's list, and one that reads like a
+    rejection when it turns up in a stranger's inbox.
+    """
     name = safe_name(application.full_name)
     first = html.escape(name.split(" ")[0] or "there")
-    role = html.escape(posting.title)
+    plain_first = name.split(" ")[0] or "there"
+    no_role = posting.slug == UNASSIGNED_SLUG
+
+    subject = (
+        "Application received - ACUD"
+        if no_role
+        else f"Application received - {posting.title}"
+    )
+    opening_text = (
+        "Your CV has been received and is with the hiring team."
+        if no_role
+        else f"Your application for {posting.title} has been received, along "
+        f"with your CV."
+    )
+    opening_html = (
+        "Your CV has been received and is with the hiring team."
+        if no_role
+        else f"Your application for <strong>{html.escape(posting.title)}</strong> "
+        f"has been received, along with your CV."
+    )
+    next_step = (
+        "It will be kept on file and looked at when a role it suits opens. If "
+        "there is one, somebody will contact you at this address."
+        if no_role
+        else "The hiring team reviews applications as they come in. If your "
+        "experience fits what the role needs, somebody will contact you at "
+        "this address."
+    )
 
     text = (
-        f"Hello {name.split(' ')[0] or 'there'},\n\n"
-        f"Your application for {posting.title} has been received, along with "
-        f"your CV.\n\n"
-        f"The hiring team reviews applications as they come in. If your "
-        f"experience fits what the role needs, somebody will contact you at "
-        f"this address.\n\n"
+        f"Hello {plain_first},\n\n"
+        f"{opening_text}\n\n"
+        f"{next_step}\n\n"
         f"This message is automatic - there is no need to reply to it."
     )
     body = _page(
         f"<p>Hello {first},</p>"
-        f"<p>Your application for <strong>{role}</strong> has been received, "
-        f"along with your CV.</p>"
-        f"<p>The hiring team reviews applications as they come in. If your "
-        f"experience fits what the role needs, somebody will contact you at "
-        f"this address.</p>"
+        f"<p>{opening_html}</p>"
+        f"<p>{next_step}</p>"
         f'<p style="color:#666;font-size:13px">This message is automatic - '
         f"there is no need to reply to it.</p>"
     )
-    return send(application.email, f"Application received - {posting.title}", text, body)
+    return send(application.email, subject, text, body)
 
 
 def new_applications_digest(posting, rows: list) -> list[Sent]:

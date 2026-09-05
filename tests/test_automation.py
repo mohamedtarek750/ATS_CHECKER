@@ -22,7 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from ats import intake, notify, stats  # noqa: E402
+from ats import backends, intake, notify, postings, stats  # noqa: E402
 from ats.backends.local import LocalBackend  # noqa: E402
 from ats.job_profile import JobProfile, Requirement  # noqa: E402
 from ats.postings import Application, JobPosting  # noqa: E402
@@ -271,6 +271,120 @@ def test_statistics_survive_a_vacancy_nobody_applied_to():
     assert computed.average_percent == 0
     assert computed.hardest == []
     assert computed.per_day == []
+
+
+def test_a_cv_sent_without_a_role_is_thanked_without_naming_one():
+    """The holding pen's title is written for the recruiter's list.
+
+    "Your application for Applicants without a job description has been
+    received" is what the generic version produced, which reads like a
+    rejection to the person who gets it.
+    """
+    pen = postings.unassigned_posting()
+    row = Application(job_slug=pen.slug, full_name="Nadia Saleh",
+                      email="nadia@example.com")
+
+    with environment(**MAIL_ON), fake_provider() as sent:
+        assert notify.application_received(row, pen).ok
+
+    message = sent[0]
+    everything = message["subject"] + message["text"] + message["html"]
+    assert "without a job description" not in everything
+    assert "unassigned" not in everything.lower()
+    assert message["subject"] == "Application received - ACUD"
+    assert "Nadia" in message["text"]
+    # It still says what happens next, rather than trailing off.
+    assert "kept on file" in message["text"]
+
+
+def test_applying_to_a_vacancy_still_names_it():
+    posting = make_posting()
+    row = Application(job_slug=posting.slug, full_name="Omar Hassan",
+                      email="omar@example.com")
+
+    with environment(**MAIL_ON), fake_provider() as sent:
+        assert notify.application_received(row, posting).ok
+
+    assert sent[0]["subject"] == "Application received - Data Analyst"
+    assert "Data Analyst" in sent[0]["text"]
+
+
+def test_applying_through_the_form_sends_the_thank_you():
+    """The wiring, not just the message.
+
+    Both public routes are checked: a receipt that only went out on one of them
+    would leave everybody who applied without picking a role hearing nothing.
+    """
+    from fastapi.testclient import TestClient
+
+    from api.index import app
+    from ats import backends
+    from ats.backends.local import LocalBackend
+
+    import json as _json
+    import tempfile
+    from pathlib import Path as _Path
+
+    cv = (ROOT / "samples" / "01_data_analyst_omar.pdf").read_bytes()
+
+    for route, expected in (
+        ("vacancy", "Application received - Data Analyst"),
+        ("open", "Application received - ACUD"),
+    ):
+        backends._backend = LocalBackend(_Path(tempfile.mkdtemp()))
+        client = TestClient(app)
+        with environment(ATS_AUTH="off", **MAIL_ON), fake_provider() as sent:
+            if route == "vacancy":
+                slug = client.post(
+                    "/api/postings",
+                    json={"job": _json.loads(make_posting().profile.model_dump_json())},
+                ).json()["slug"]
+                where = f"/api/public/postings/{slug}/apply"
+            else:
+                where = "/api/public/apply"
+
+            receipt = client.post(
+                where,
+                data={"full_name": "Omar Hassan", "email": "omar@example.com",
+                      "phone": ""},
+                files={"file": ("omar.pdf", cv, "application/pdf")},
+            )
+            assert receipt.status_code == 200, receipt.text
+            # The receipt the applicant sees still leaks nothing about scoring.
+            assert set(receipt.json()) == {"id", "full_name", "status"}
+
+            assert len(sent) == 1, f"{route}: {len(sent)} emails"
+            assert sent[0]["subject"] == expected
+            assert sent[0]["to"] == ["omar@example.com"]
+
+
+def test_a_mail_outage_does_not_fail_the_application():
+    """The one rule this whole feature hangs on."""
+    from fastapi.testclient import TestClient
+
+    from api.index import app
+    from ats import backends
+    from ats.backends.local import LocalBackend
+
+    import tempfile
+    from pathlib import Path as _Path
+
+    backends._backend = LocalBackend(_Path(tempfile.mkdtemp()))
+    client = TestClient(app)
+    cv = (ROOT / "samples" / "01_data_analyst_omar.pdf").read_bytes()
+
+    with environment(ATS_AUTH="off", **MAIL_ON):
+        with fake_provider(raises=OSError("the provider is down")):
+            response = client.post(
+                "/api/public/apply",
+                data={"full_name": "Omar", "email": "omar@example.com", "phone": ""},
+                files={"file": ("omar.pdf", cv, "application/pdf")},
+            )
+
+        assert response.status_code == 200, response.text
+        # And the CV is really there, not just acknowledged.
+        stored = client.get(f"/api/cv-file/{response.json()['id']}")
+        assert stored.status_code == 200, stored.text
 
 
 if __name__ == "__main__":

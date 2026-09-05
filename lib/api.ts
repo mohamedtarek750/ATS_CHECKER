@@ -705,6 +705,7 @@ export async function vacancyStats(slug: string): Promise<VacancyStats> {
   );
 }
 
+/** Whether a thank-you actually goes out when somebody applies. */
 export async function mailStatus(): Promise<MailStatus> {
   return unwrapAdmin<MailStatus>(await adminFetch("/api/mail/status"));
 }
