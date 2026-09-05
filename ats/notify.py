@@ -389,6 +389,62 @@ def _send_over_script(to: str, subject: str, text: str, html_body: str) -> Sent:
         return Sent(ok=False, detail=str(exc)[:200])
 
 
+#: What Gmail says, and what it means. Its reply is the only thing that tells
+#: these three apart, and they have three different fixes.
+_REFUSALS = [
+    (
+        "badcredentials",
+        "The password is wrong for this mailbox. If it is a Gmail App "
+        "Password, generate a fresh one at myaccount.google.com/apppasswords "
+        "and check it belongs to the same account as ATS_SMTP_USER.",
+    ),
+    (
+        "invalidsecondfactor",
+        "This account needs an App Password and was given something else. "
+        "Turn on 2-Step Verification, then create one at "
+        "myaccount.google.com/apppasswords.",
+    ),
+    (
+        "weblogin",
+        "Google wants a browser sign-in on this account first - usually after "
+        "it flagged the attempt as unusual. Sign in to the mailbox in a "
+        "browser, then try again.",
+    ),
+    (
+        "not enabled for smtp",
+        "SMTP is switched off for this mailbox. On Workspace an administrator "
+        "controls that.",
+    ),
+]
+
+
+def _refused(exc: smtplib.SMTPAuthenticationError, user: str) -> str:
+    """The server's own words first, then a reading of them.
+
+    The reading is right most of the time and is a guess every time; putting it
+    alone in front of somebody who has already checked the thing it names
+    leaves them with nowhere to go.
+    """
+    said = ""
+    try:
+        said = (exc.smtp_error or b"").decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001 - a bad error message is not worth raising on
+        said = str(exc.smtp_error or "")
+    said = " ".join(said.split())[:220]
+
+    lowered = said.lower().replace("-", "")
+    reading = next(
+        (why for token, why in _REFUSALS if token.replace("-", "") in lowered),
+        "The mailbox refused the password. For Gmail that usually means it is "
+        "not an App Password, or 2-Step Verification is off on the account.",
+    )
+
+    return (
+        f"{user} was refused ({exc.smtp_code}). The server said: "
+        f"{said or 'nothing beyond the code'}. {reading}"
+    )
+
+
 def _send_over_smtp(to: str, subject: str, text: str, html_body: str) -> Sent:
     """Through an ordinary mailbox. One connection, one message, then closed.
 
@@ -457,17 +513,7 @@ def _send_over_smtp(to: str, subject: str, text: str, html_body: str) -> Sent:
             server.send_message(message)
         return Sent(ok=True)
     except smtplib.SMTPAuthenticationError as exc:
-        # By far the most common failure, and the provider's own wording for it
-        # is unhelpful. The password is not in this message - only the fact
-        # that it was refused.
-        return Sent(
-            ok=False,
-            detail=(
-                f"the mailbox refused the sign-in ({exc.smtp_code}). For Gmail "
-                f"this means ATS_SMTP_PASSWORD is not an App Password, or "
-                f"2-Step Verification is off on the account."
-            ),
-        )
+        return Sent(ok=False, detail=_refused(exc, settings["user"]))
     except Exception as exc:  # noqa: BLE001 - a mail outage is not an error here
         return Sent(ok=False, detail=f"{type(exc).__name__}: {exc}"[:200])
 

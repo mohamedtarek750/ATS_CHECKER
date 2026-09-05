@@ -302,15 +302,53 @@ def test_an_ordinary_password_is_not_accused_of_anything():
             assert notify.send("m@example.com", "s", "t", "<p>h</p>").ok, password
 
 
-def test_a_refused_sign_in_says_what_to_check_and_never_the_password():
-    refused = smtplib.SMTPAuthenticationError(535, b"5.7.8 Username and Password not accepted")
-    with environment(**SMTP_ON), fake_smtp(login_error=refused):
-        result = notify.send("m@example.com", "s", "t", "<p>h</p>")
+def test_a_refusal_keeps_what_the_server_said_before_guessing_why():
+    """The guess is right most of the time and is a guess every time.
 
-    assert not result.ok
-    assert "App Password" in result.detail
-    assert "2-Step Verification" in result.detail
-    assert "not-a-real-password" not in result.detail
+    Alone, in front of somebody who has already checked the one thing it names,
+    it leaves them with nowhere to go. Gmail's own reply is what tells the
+    three refusals apart, and they have three different fixes.
+    """
+    cases = [
+        (
+            b"5.7.8 Username and Password not accepted. "
+            b"https://support.google.com/mail/?p=BadCredentials",
+            "generate a fresh one",
+        ),
+        (
+            b"5.7.9 Application-specific password required. "
+            b"https://support.google.com/mail/?p=InvalidSecondFactor",
+            "Turn on 2-Step Verification",
+        ),
+        (
+            b"5.7.14 Please log in via your web browser and then try again. "
+            b"https://support.google.com/mail/?p=WebLoginRequired",
+            "Sign in to the mailbox in a browser",
+        ),
+    ]
+
+    for said, expected in cases:
+        refused = smtplib.SMTPAuthenticationError(535, said)
+        with environment(**SMTP_ON), fake_smtp(login_error=refused):
+            detail = notify.send("m@example.com", "s", "t", "<p>h</p>").detail
+
+        # The server's own words survive, verbatim enough to search for.
+        assert "5.7." in detail, detail
+        assert expected in detail, detail
+        # And the mailbox is named, because the account it was tried against is
+        # as likely to be the mistake as the password.
+        assert "me@gmail.com" in detail
+        assert "not-a-real-password" not in detail
+
+
+def test_a_refusal_nobody_has_a_reading_for_still_carries_the_server_line():
+    refused = smtplib.SMTPAuthenticationError(535, b"5.7.0 Something new and unhelpful")
+    with environment(**SMTP_ON), fake_smtp(login_error=refused):
+        detail = notify.send("m@example.com", "s", "t", "<p>h</p>").detail
+
+    assert "Something new and unhelpful" in detail
+    # Falls back to the common reading rather than to silence.
+    assert "App Password" in detail
 
 
 def test_a_dead_server_is_reported_rather_than_raised():
