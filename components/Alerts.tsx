@@ -1,0 +1,115 @@
+"use client";
+
+import Link from "next/link";
+import { useState } from "react";
+import { FORECAST } from "@/lib/workforce";
+import type { Alert, AlertLevel } from "@/lib/alerts";
+
+const TONE: Record<AlertLevel, { chip: string; label: string; edge: string }> = {
+  critical: {
+    chip: "bg-bad-wash text-bad",
+    label: "Critical",
+    edge: "rgb(var(--bad))",
+  },
+  warning: {
+    chip: "bg-warn-wash text-warn",
+    label: "Warning",
+    edge: "rgb(var(--warn))",
+  },
+  info: { chip: "raised text-muted", label: "Note", edge: "rgb(var(--line))" },
+};
+
+/**
+ * The alerts panel.
+ *
+ * Two things it deliberately does NOT do. It does not render when there is
+ * nothing to say - an empty "no alerts" box trains people to skip the place
+ * alerts appear. And it does not hide where its numbers came from: the gap
+ * figures are a frozen forecast sitting next to live application counts, and a
+ * reader has to be able to tell which is which without leaving the page.
+ */
+export function Alerts({
+  alerts,
+  limit = 4,
+  title = "Alerts",
+}: {
+  alerts: Alert[];
+  limit?: number;
+  title?: string;
+}) {
+  const [all, setAll] = useState(false);
+  if (alerts.length === 0) return null;
+
+  const shown = all ? alerts : alerts.slice(0, limit);
+  const hidden = alerts.length - shown.length;
+  const fromForecast = alerts.some((a) => a.source === "forecast");
+
+  return (
+    <section className="space-y-2.5">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h2 className="font-medium">{title}</h2>
+        <span className="text-sm text-muted">
+          {alerts.length} finding{alerts.length === 1 ? "" : "s"}
+        </span>
+      </div>
+
+      {shown.map((alert) => {
+        const tone = TONE[alert.level];
+        return (
+          <div
+            key={alert.id}
+            className="card animate-rise px-4 py-3.5"
+            style={{ borderLeft: `3px solid ${tone.edge}` }}
+          >
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className={`chip ${tone.chip}`}>{tone.label}</span>
+              {alert.department && (
+                <span className="chip raised text-muted">{alert.department}</span>
+              )}
+              {/* Which kind of number this rests on. The whole panel mixes a
+                  frozen forecast with live counts, and the difference decides
+                  how much weight a reader should put on it. */}
+              <span className="chip raised text-muted">
+                {alert.source === "forecast" ? "Forecast" : "Live"}
+              </span>
+            </div>
+
+            <p className="mt-2 font-medium">{alert.title}</p>
+            <p className="mt-1 text-sm leading-relaxed text-muted">
+              {alert.detail}
+            </p>
+
+            {alert.action && (
+              <Link
+                href={alert.action.href}
+                className="mt-2.5 inline-block text-sm font-medium text-brand hover:underline"
+              >
+                {alert.action.label} →
+              </Link>
+            )}
+          </div>
+        );
+      })}
+
+      {hidden > 0 && (
+        <button className="btn-ghost text-sm" onClick={() => setAll(true)}>
+          Show {hidden} more
+        </button>
+      )}
+      {all && alerts.length > limit && (
+        <button className="btn-ghost text-sm" onClick={() => setAll(false)}>
+          Show fewer
+        </button>
+      )}
+
+      {fromForecast && (
+        <p className="pt-0.5 text-xs leading-relaxed text-muted">
+          Anything marked <strong className="text-ink">Forecast</strong> rests on
+          the workforce model — a {FORECAST.model} trained on{" "}
+          {FORECAST.trainedOn} and unchanged since, not live HR data. Application
+          counts marked <strong className="text-ink">Live</strong> are current.
+        </p>
+      )}
+    </section>
+  );
+}

@@ -2,11 +2,14 @@
 
 import Link from "next/link";
 import { use, useCallback, useEffect, useState } from "react";
+import { Alerts } from "@/components/Alerts";
 import { CandidateDetail } from "@/components/CandidateDetail";
 import { Note, Score, Stat } from "@/components/Shell";
 import { StatsPanel } from "@/components/StatsPanel";
 import { assignToVacancy, listPostings, UNASSIGNED_SLUG, type Posting } from "@/lib/api";
+import { buildAlerts } from "@/lib/alerts";
 import { downloadCSV, toCSV } from "@/lib/csv";
+import { ROLES, TURNOVER } from "@/lib/workforce";
 import {
   DECISIONS,
   DECISION_TONE,
@@ -101,6 +104,24 @@ export default function JobDashboard({
   const { posting, counts } = data;
   const unread = counts.pending ?? 0;
 
+  // Only what is about THIS vacancy. The list page carries the rest, including
+  // the roles that have no vacancy at all - which by definition have no page
+  // of their own to appear on.
+  const alerts = buildAlerts(
+    [
+      {
+        slug: posting.slug,
+        title: posting.title,
+        status: posting.status,
+        applications: counts.total ?? 0,
+        accepted: counts.accepted ?? 0,
+        unread,
+      },
+    ],
+    ROLES,
+    TURNOVER
+  ).filter((alert) => alert.jobSlug === posting.slug);
+
   // How many sit at each stage of the human process, which is a different
   // question from how the engine scored them.
   const funnel: Record<string, number> = {};
@@ -163,6 +184,8 @@ export default function JobDashboard({
         <Stat value={counts.waiting_list ?? 0} label="Waiting list" tone="warn" />
         <Stat value={counts.rejected ?? 0} label="Rejected" />
       </div>
+
+      <Alerts alerts={alerts} title="About this role" limit={3} />
 
       {unread > 0 && (
         <div className="card flex flex-wrap items-center gap-3 px-4 py-3">

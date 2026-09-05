@@ -4,7 +4,10 @@ import Link from "next/link";
 import { AcudMark } from "@/components/AcudMark";
 import { useEffect, useState } from "react";
 import JobStep from "@/components/JobStep";
+import { Alerts } from "@/components/Alerts";
 import { Note } from "@/components/Shell";
+import { buildAlerts } from "@/lib/alerts";
+import { ROLES, TURNOVER } from "@/lib/workforce";
 import {
   createPosting,
   deletePosting,
@@ -57,6 +60,10 @@ export default function AdminPage() {
     );
   }
 
+  // Recomputed from whatever is on screen, so deleting or closing a job
+  // changes the alerts in the same breath rather than on the next reload.
+  const alerts = buildAlerts(postings ?? [], ROLES, TURNOVER);
+
   async function remove(posting: Posting) {
     await deletePosting(posting.slug, posting.applications > 0);
     setPostings((current) =>
@@ -102,6 +109,8 @@ export default function AdminPage() {
             Add a job
           </button>
         )}
+
+        <Alerts alerts={alerts} />
 
         {creating && (
           <div className="card space-y-4 px-5 py-5">
