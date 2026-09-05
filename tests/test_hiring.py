@@ -391,6 +391,8 @@ GUARDED = [
     ("POST", "/api/applications/abc123/assign"),
     ("GET", "/api/cv-file/abc123"),
     ("GET", "/api/mail/status"),
+    ("GET", "/api/alerts"),
+    ("POST", "/api/alerts/send"),
 ]
 
 

@@ -469,14 +469,14 @@ export function setAdminToken(token: string): void {
 export class SignedOutError extends Error {}
 
 /** A fetch that carries the signed-in identity. Admin routes only. */
-async function adminFetch(url: string, init: RequestInit = {}): Promise<Response> {
+export async function adminFetch(url: string, init: RequestInit = {}): Promise<Response> {
   const token = adminToken();
   const headers = new Headers(init.headers);
   if (token) headers.set("Authorization", `Bearer ${token}`);
   return fetch(url, { ...init, headers });
 }
 
-async function unwrapAdmin<T>(response: Response): Promise<T> {
+export async function unwrapAdmin<T>(response: Response): Promise<T> {
   if (response.status === 401) {
     // The token has expired or was never any good. Drop it so the page shows
     // the sign-in button instead of failing every call from now on.

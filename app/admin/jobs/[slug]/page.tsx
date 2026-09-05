@@ -7,9 +7,8 @@ import { CandidateDetail } from "@/components/CandidateDetail";
 import { Note, Score, Stat } from "@/components/Shell";
 import { StatsPanel } from "@/components/StatsPanel";
 import { assignToVacancy, listPostings, UNASSIGNED_SLUG, type Posting } from "@/lib/api";
-import { buildAlerts } from "@/lib/alerts";
+import { fetchAlerts, type Alert } from "@/lib/alerts";
 import { downloadCSV, toCSV } from "@/lib/csv";
-import { ROLES, TURNOVER } from "@/lib/workforce";
 import {
   DECISIONS,
   DECISION_TONE,
@@ -45,6 +44,7 @@ export default function JobDashboard({
   const [decisionFilter, setDecisionFilter] = useState<DecisionValue | "all">("all");
   const [search, setSearch] = useState("");
   const [showStats, setShowStats] = useState(false);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -58,6 +58,15 @@ export default function JobDashboard({
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    // Only the findings about this vacancy. The list page carries the rest,
+    // including roles with no vacancy at all - which by definition have no
+    // page of their own to appear on.
+    fetchAlerts()
+      .then((state) => setAlerts(state.alerts.filter((a) => a.job_slug === slug)))
+      .catch(() => setAlerts([]));
+  }, [slug]);
 
   async function readNew() {
     setReading(true);
@@ -104,23 +113,6 @@ export default function JobDashboard({
   const { posting, counts } = data;
   const unread = counts.pending ?? 0;
 
-  // Only what is about THIS vacancy. The list page carries the rest, including
-  // the roles that have no vacancy at all - which by definition have no page
-  // of their own to appear on.
-  const alerts = buildAlerts(
-    [
-      {
-        slug: posting.slug,
-        title: posting.title,
-        status: posting.status,
-        applications: counts.total ?? 0,
-        accepted: counts.accepted ?? 0,
-        unread,
-      },
-    ],
-    ROLES,
-    TURNOVER
-  ).filter((alert) => alert.jobSlug === posting.slug);
 
   // How many sit at each stage of the human process, which is a different
   // question from how the engine scored them.

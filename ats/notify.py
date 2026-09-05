@@ -252,3 +252,113 @@ def new_applications_digest(posting, rows: list) -> list[Sent]:
     )
 
     return [send(address, headline, text, body) for address in recipients]
+
+
+def alert_emails() -> list[str]:
+    """Who gets the alert digest.
+
+    Falls back to the hiring-team list rather than to nobody: a deployment that
+    set one address list and not the other meant to be told something, and
+    silently sending to no one is the failure mode this whole feature exists to
+    avoid.
+    """
+    raw = os.getenv("ATS_ALERT_EMAILS") or ""
+    found = [e.strip() for e in raw.split(",") if _EMAIL.match(e.strip())]
+    return found or hr_emails()
+
+
+_LEVEL_MARK = {"critical": "🔴", "warning": "🟡", "info": "🟢"}
+_LEVEL_WORD = {"critical": "Critical", "warning": "Warning", "info": "Note"}
+_LEVEL_COLOUR = {"critical": "#c52027", "warning": "#a15c00", "info": "#4b7f52"}
+
+
+def alert_digest(alerts: list, base_url: str = "", subject_prefix: str = "") -> list[Sent]:
+    """One email carrying every open finding, to whoever is on the alert list.
+
+    Deliberately one message and not one per alert. A quiet week produces
+    nothing at all - an alert mail that arrives whether or not anything is
+    wrong teaches its readers that it never is.
+
+    `alerts` are `ats.alerts.Alert` objects. They are formatted here rather than
+    passed as text so that the mail and the dashboard cannot describe the same
+    finding differently.
+    """
+    recipients = alert_emails()
+    if not recipients or not alerts:
+        return []
+
+    critical = [a for a in alerts if a.level == "critical"]
+    warning = [a for a in alerts if a.level == "warning"]
+
+    if critical:
+        headline = (
+            f"{len(critical)} critical workforce alert"
+            f"{'' if len(critical) == 1 else 's'}"
+        )
+    elif warning:
+        headline = (
+            f"{len(warning)} workforce alert{'' if len(warning) == 1 else 's'}"
+        )
+    else:
+        headline = f"{len(alerts)} workforce note{'' if len(alerts) == 1 else 's'}"
+
+    lines = [headline, "=" * len(headline), ""]
+    body = [
+        f'<p style="margin:0 0 4px"><strong style="font-size:17px">'
+        f"{html.escape(headline)}</strong></p>",
+        '<p style="margin:0 0 18px;color:#666;font-size:13px">'
+        "From the ACUD hiring and workforce dashboard.</p>",
+    ]
+
+    for alert in alerts:
+        mark = _LEVEL_MARK.get(alert.level, "•")
+        word = _LEVEL_WORD.get(alert.level, alert.level.title())
+        where = f" · {alert.department}" if alert.department else ""
+
+        lines.append(f"{mark} {word}{where}")
+        lines.append(f"   {alert.title}")
+        lines.append(f"   {alert.detail}")
+        if base_url and alert.action_href:
+            lines.append(f"   {base_url.rstrip('/')}{alert.action_href}")
+        lines.append("")
+
+        link = ""
+        if base_url and alert.action_href:
+            href = html.escape(f"{base_url.rstrip('/')}{alert.action_href}")
+            link = (
+                f'<a href="{href}" style="color:#ed1c24;text-decoration:none;'
+                f'font-weight:600;font-size:13px">'
+                f"{html.escape(alert.action_label or 'Open')} &rarr;</a>"
+            )
+
+        body.append(
+            f'<div style="border-left:3px solid {_LEVEL_COLOUR.get(alert.level, "#ddd")};'
+            f'background:#fafafa;padding:12px 14px;margin:0 0 10px;border-radius:6px">'
+            f'<div style="font-size:12px;color:#666;text-transform:uppercase;'
+            f'letter-spacing:.04em">{html.escape(word)}{html.escape(where)}'
+            f" &middot; {html.escape(alert.source.title())}</div>"
+            f'<div style="font-weight:600;margin-top:4px">{html.escape(alert.title)}</div>'
+            f'<div style="color:#444;margin-top:4px;font-size:14px">'
+            f"{html.escape(alert.detail)}</div>"
+            + (f'<div style="margin-top:8px">{link}</div>' if link else "")
+            + "</div>"
+        )
+
+    # The same caveat the dashboard carries. An emailed number travels further
+    # than the page it came from and arrives without its context.
+    lines += [
+        "",
+        "Findings marked Forecast rest on a frozen workforce model, not live HR "
+        "data. Findings marked Live are current as of the moment this was sent.",
+    ]
+    body.append(
+        '<p style="color:#666;font-size:12px;line-height:1.5;margin-top:16px">'
+        "Findings marked <strong>Forecast</strong> rest on a frozen workforce "
+        "model - trained once and unchanged since - not on live HR data. "
+        "Findings marked <strong>Live</strong> are current as of the moment "
+        "this was sent.</p>"
+    )
+
+    subject = f"{subject_prefix}{headline}" if subject_prefix else headline
+    return [send(address, subject, "\n".join(lines), _page("".join(body)))
+            for address in recipients]

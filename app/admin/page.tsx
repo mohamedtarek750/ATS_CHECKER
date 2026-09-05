@@ -6,8 +6,7 @@ import { useEffect, useState } from "react";
 import JobStep from "@/components/JobStep";
 import { Alerts } from "@/components/Alerts";
 import { Note } from "@/components/Shell";
-import { buildAlerts } from "@/lib/alerts";
-import { ROLES, TURNOVER } from "@/lib/workforce";
+import { fetchAlerts, type Alert } from "@/lib/alerts";
 import {
   createPosting,
   deletePosting,
@@ -26,6 +25,7 @@ export default function AdminPage() {
   const [postings, setPostings] = useState<Posting[] | null>(null);
   const [server, setServer] = useState<Health | null>(null);
   const [mail, setMail] = useState<MailStatus | null>(null);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
   const [job, setJob] = useState<JobProfile | null>(null);
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -35,6 +35,9 @@ export default function AdminPage() {
     listPostings().then(setPostings).catch(() => setPostings([]));
     health().then(setServer).catch(() => setServer(null));
     mailStatus().then(setMail).catch(() => setMail(null));
+    fetchAlerts()
+      .then((state) => setAlerts(state.alerts))
+      .catch(() => setAlerts([]));
   }, []);
 
   async function open() {
@@ -59,10 +62,6 @@ export default function AdminPage() {
       (current ?? []).map((p) => (p.slug === updated.slug ? updated : p))
     );
   }
-
-  // Recomputed from whatever is on screen, so deleting or closing a job
-  // changes the alerts in the same breath rather than on the next reload.
-  const alerts = buildAlerts(postings ?? [], ROLES, TURNOVER);
 
   async function remove(posting: Posting) {
     await deletePosting(posting.slug, posting.applications > 0);
@@ -110,7 +109,7 @@ export default function AdminPage() {
           </button>
         )}
 
-        <Alerts alerts={alerts} />
+        <Alerts alerts={alerts} href="/admin/notifications" />
 
         {creating && (
           <div className="card space-y-4 px-5 py-5">

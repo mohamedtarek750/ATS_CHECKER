@@ -38,10 +38,13 @@ export function Alerts({
   alerts,
   limit = 4,
   title = "Alerts",
+  href,
 }: {
   alerts: Alert[];
   limit?: number;
   title?: string;
+  /** Where the full feed lives, when this is a summary of it. */
+  href?: string;
 }) {
   const [all, setAll] = useState(false);
   if (alerts.length === 0) return null;
@@ -59,6 +62,11 @@ export function Alerts({
         <span className="text-sm text-muted">
           {alerts.length} finding{alerts.length === 1 ? "" : "s"}
         </span>
+        {href && (
+          <Link href={href} className="ml-auto text-sm text-muted hover:text-ink">
+            Notifications &rarr;
+          </Link>
+        )}
       </div>
 
       {shown.map((alert) => {
@@ -87,12 +95,12 @@ export function Alerts({
               {alert.detail}
             </p>
 
-            {alert.action && (
+            {alert.action_href && (
               <Link
-                href={alert.action.href}
+                href={alert.action_href}
                 className="mt-2.5 inline-block text-sm font-medium text-brand hover:underline"
               >
-                {alert.action.label} →
+                {alert.action_label || "Open"} →
               </Link>
             )}
           </div>

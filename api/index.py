@@ -44,6 +44,7 @@ from ats.blueprint import CVBlueprint, blueprint_for, render  # noqa: E402
 from ats.stages import from_cv, jobspec, offline, parse, rank  # noqa: E402
 from ats.stages import template_match as template  # noqa: E402
 from ats.stages import match as match_stage  # noqa: E402
+from ats import alerts as alerting  # noqa: E402
 from ats import intake, postings  # noqa: E402
 from ats.backends import BackendError, get_backend  # noqa: E402
 from ats import auth, injection, notify, stats as stats_module  # noqa: E402
@@ -1123,6 +1124,105 @@ def vacancy_stats(
     )
 
 
+class AlertOut(BaseModel):
+    id: str
+    level: str
+    title: str
+    detail: str
+    source: str
+    department: str = ""
+    job_slug: str = ""
+    action_label: str = ""
+    action_href: str = ""
+
+
+class AlertsOut(BaseModel):
+    alerts: list[AlertOut]
+    #: Who a digest would reach. Empty is the state worth knowing about.
+    recipients: list[str]
+    mail_configured: bool
+
+
+def _current_alerts() -> list:
+    return alerting.build(alerting.vacancy_states(get_backend()))
+
+
+@app.get("/api/alerts", response_model=AlertsOut)
+def list_alerts(admin: auth.AdminUser = Depends(require_admin)) -> AlertsOut:
+    """Every open finding, and who would be told about it.
+
+    Computed here rather than in the browser because the same findings have to
+    go out by email with nobody looking at a page. Two implementations of one
+    set of rules is a promise that the mail and the dashboard will eventually
+    disagree.
+    """
+    return AlertsOut(
+        alerts=[AlertOut(**a.as_dict()) for a in _current_alerts()],
+        recipients=notify.alert_emails(),
+        mail_configured=notify.is_configured(),
+    )
+
+
+class SentOut(BaseModel):
+    sent: int
+    alerts: int
+    recipients: list[str]
+    #: One line per recipient saying what happened. "sent", or why not.
+    results: list[str]
+    detail: str = ""
+
+
+@app.post("/api/alerts/send", response_model=SentOut)
+def send_alerts(
+    test: bool = False, admin: auth.AdminUser = Depends(require_admin)
+) -> SentOut:
+    """Send the digest now.
+
+    `test=true` marks the subject so a trial run is distinguishable in an inbox
+    from the real thing. It is otherwise the identical message built from the
+    identical data - a test that sends something different from what the system
+    sends proves nothing about the system.
+    """
+    found = _current_alerts()
+    if not found:
+        return SentOut(
+            sent=0, alerts=0, recipients=notify.alert_emails(), results=[],
+            detail="Nothing to report - no alert is open, so nothing was sent.",
+        )
+    if not notify.alert_emails():
+        raise HTTPException(
+            400,
+            "No address is set to receive alerts. Put one or more in "
+            "ATS_ALERT_EMAILS, separated by commas.",
+        )
+
+    results = notify.alert_digest(
+        found,
+        base_url=_public_base_url(),
+        subject_prefix="[test] " if test else "",
+    )
+    return SentOut(
+        sent=sum(1 for r in results if r.ok),
+        alerts=len(found),
+        recipients=notify.alert_emails(),
+        results=[r.note for r in results],
+    )
+
+
+def _public_base_url() -> str:
+    """Where the links in an email should point.
+
+    Vercel sets VERCEL_URL to the deployment's own hostname, which is right for
+    a preview and wrong for production once a domain is attached - so an
+    explicit setting wins over it.
+    """
+    explicit = (os.getenv("ATS_PUBLIC_URL") or "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    host = (os.getenv("VERCEL_PROJECT_PRODUCTION_URL") or os.getenv("VERCEL_URL") or "").strip()
+    return f"https://{host}" if host else ""
+
+
 @app.get("/api/mail/status")
 def mail_status(admin: auth.AdminUser = Depends(require_admin)) -> dict:
     """Whether email is set up, so the dashboard can say so rather than guess."""
@@ -1300,6 +1400,19 @@ def cron_intake(authorization: str | None = Header(default=None)) -> CronOut:
         notified += sent
         if results:
             detail.append(f"{posting.slug}: digest {sent}/{len(results)}")
+
+    # Alerts last, so they are computed against what the sweep just read
+    # rather than against the backlog it has now cleared.
+    found = _current_alerts()
+    if found and notify.alert_emails():
+        results = notify.alert_digest(found, base_url=_public_base_url())
+        delivered = sum(1 for r in results if r.ok)
+        notified += delivered
+        detail.append(f"alerts: {len(found)} findings, digest {delivered}/{len(results)}")
+    elif found:
+        detail.append(f"alerts: {len(found)} findings, nobody set to receive them")
+    else:
+        detail.append("alerts: nothing open, no digest sent")
 
     return CronOut(
         postings=len(backend.postings()), read=total_read,
