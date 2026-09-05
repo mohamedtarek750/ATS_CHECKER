@@ -91,12 +91,12 @@ export default function NotificationsPage() {
     setSaving(false);
   }
 
-  async function send(test: boolean) {
+  async function send() {
     setBusy(true);
     setError("");
     setSent(null);
     try {
-      const result = await sendAlerts(test);
+      const result = await sendAlerts();
       setSent(result);
       setSentAt(new Date().toLocaleTimeString());
     } catch (e) {
@@ -185,17 +185,10 @@ export default function NotificationsPage() {
           <div className="flex flex-wrap items-center gap-2 border-t pt-4">
             <button
               className="btn-primary"
-              disabled={busy || !state}
-              onClick={() => send(true)}
+              disabled={busy || !state || alerts.length === 0}
+              onClick={send}
             >
-              {busy ? "Sending…" : "Send a test now"}
-            </button>
-            <button
-              className="btn-ghost"
-              disabled={busy || !state}
-              onClick={() => send(false)}
-            >
-              Send for real
+              {busy ? "Sending…" : "Send now"}
             </button>
             <button className="btn-ghost ml-auto text-sm" onClick={load}>
               Refresh
@@ -203,11 +196,11 @@ export default function NotificationsPage() {
           </div>
 
           <p className="text-xs leading-relaxed text-muted">
-            The test and the real send build the identical message from the
-            identical data; the only difference is <code>[test]</code> in front
-            of the subject line, so a trial is distinguishable in an inbox. A
-            test that sent something different would prove nothing about what
-            the system sends.
+            {alerts.length === 0
+              ? "Nothing is open, so there is nothing to send. The scheduled run does the same: no findings, no email."
+              : `Sends the ${alerts.length} finding${
+                  alerts.length === 1 ? "" : "s"
+                } below to everybody listed above, now — the same message the scheduled run sends.`}
           </p>
 
           {/* What the provider actually said, not a tick. */}

@@ -104,17 +104,9 @@ export async function fetchAlerts(): Promise<AlertsResponse> {
   return unwrapAdmin<AlertsResponse>(await adminFetch("/api/alerts"));
 }
 
-/**
- * Send the digest now.
- *
- * `test` only marks the subject line. The message and the data behind it are
- * the same either way — a test that sends something different from what the
- * system sends proves nothing about the system.
- */
-export async function sendAlerts(test = false): Promise<SendResult> {
+/** Send the digest now — the same message the scheduled run sends. */
+export async function sendAlerts(): Promise<SendResult> {
   return unwrapAdmin<SendResult>(
-    await adminFetch(`/api/alerts/send${test ? "?test=true" : ""}`, {
-      method: "POST",
-    })
+    await adminFetch("/api/alerts/send", { method: "POST" })
   );
 }

@@ -434,17 +434,23 @@ def test_the_subject_leads_with_what_is_worst():
     assert "critical" not in sent[2]["subject"]
 
 
-def test_a_test_send_is_marked_but_otherwise_identical():
-    """A test that sends something different proves nothing about the system."""
+def test_sending_by_hand_and_sending_on_the_schedule_are_the_same_message():
+    """There is one Send button and one kind of send.
+
+    They were briefly two - a trial marked [test] in the subject, and the real
+    thing - so that somebody could find out whether any of this reached anybody
+    before it ever had. It has, and the distinction stopped earning its place:
+    both always went to the same people carrying the same findings, and [test]
+    in a subject line is a worse thing to leave in an inbox than nothing.
+    """
     found = build([], ROLES)
     with environment(**MAIL_ON), fake_provider() as sent:
-        notify.alert_digest(found, subject_prefix="[test] ")
+        notify.alert_digest(found)
         notify.alert_digest(found)
 
-    trial, real = sent[0], sent[2]
-    assert trial["subject"] == "[test] " + real["subject"]
-    assert trial["text"] == real["text"]
-    assert trial["html"] == real["html"]
+    first, second = sent[0], sent[2]
+    assert first == second
+    assert "[test]" not in first["subject"]
 
 
 def test_links_are_absolute_or_absent_never_broken():

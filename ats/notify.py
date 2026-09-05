@@ -707,7 +707,7 @@ _LEVEL_WORD = {"critical": "Critical", "warning": "Warning", "info": "Note"}
 _LEVEL_COLOUR = {"critical": "#c52027", "warning": "#a15c00", "info": "#4b7f52"}
 
 
-def alert_digest(alerts: list, base_url: str = "", subject_prefix: str = "") -> list[Sent]:
+def alert_digest(alerts: list, base_url: str = "") -> list[Sent]:
     """One email carrying every open finding, to whoever is on the alert list.
 
     Deliberately one message and not one per alert. A quiet week produces
@@ -794,6 +794,5 @@ def alert_digest(alerts: list, base_url: str = "", subject_prefix: str = "") -> 
         "this was sent.</p>"
     )
 
-    subject = f"{subject_prefix}{headline}" if subject_prefix else headline
-    return [send(address, subject, "\n".join(lines), _page("".join(body)))
+    return [send(address, headline, "\n".join(lines), _page("".join(body)))
             for address in recipients]

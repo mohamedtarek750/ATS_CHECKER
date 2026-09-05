@@ -1181,15 +1181,13 @@ class SentOut(BaseModel):
 
 
 @app.post("/api/alerts/send", response_model=SentOut)
-def send_alerts(
-    test: bool = False, admin: auth.AdminUser = Depends(require_admin)
-) -> SentOut:
-    """Send the digest now.
+def send_alerts(admin: auth.AdminUser = Depends(require_admin)) -> SentOut:
+    """Send the digest now, out of turn.
 
-    `test=true` marks the subject so a trial run is distinguishable in an inbox
-    from the real thing. It is otherwise the identical message built from the
-    identical data - a test that sends something different from what the system
-    sends proves nothing about the system.
+    The same message the scheduled run sends, to the same people. Sending
+    nothing when there is nothing open is deliberate and matches the schedule:
+    an alert mail that arrives whether or not anything is wrong teaches its
+    readers that nothing ever is.
     """
     found = _current_alerts()
     if not found:
@@ -1204,11 +1202,7 @@ def send_alerts(
             "ATS_ALERT_EMAILS, separated by commas.",
         )
 
-    results = notify.alert_digest(
-        found,
-        base_url=_public_base_url(),
-        subject_prefix="[test] " if test else "",
-    )
+    results = notify.alert_digest(found, base_url=_public_base_url())
     return SentOut(
         sent=sum(1 for r in results if r.ok),
         alerts=len(found),
