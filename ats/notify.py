@@ -81,6 +81,43 @@ TIMEOUT_SECONDS = 10
 #: two that are any use here.
 BLOCKED_PORTS = {25}
 
+#: Quotation marks that get copied along with the thing they were quoting.
+#: Named individually because "a non-ASCII character" is not something anybody
+#: can look for, and "a ‹ at the start" is.
+_STRAY = {
+    "\u2039": "‹", "\u203a": "›",
+    "\u201c": "“", "\u201d": "”",
+    "\u2018": "‘", "\u2019": "’",
+    "\u00ab": "«", "\u00bb": "»",
+    "\u2013": "–", "\u2014": "—",
+    "\u00a0": "a non-breaking space",
+}
+
+
+def _not_ascii(label: str, value: str) -> str:
+    """A sentence about the first character SMTP cannot carry, or "".
+
+    SMTP authentication is ASCII only - smtplib encodes both the username and
+    the password with .encode('ascii') and raises if it cannot. The error it
+    raises names a position in a string the reader has never seen.
+    """
+    for index, character in enumerate(value):
+        if ord(character) < 128:
+            continue
+        named = _STRAY.get(character)
+        hint = (
+            f" That is {named}, which is usually copied along with the text it "
+            f"was quoting - paste the value on its own, without the marks "
+            f"around it."
+            if named
+            else ""
+        )
+        return (
+            f"{label} has a character SMTP cannot carry at position "
+            f"{index + 1}: {character!r}.{hint}"
+        )
+    return ""
+
 #: Anything that could start a new header line. A name is one line, always.
 _HEADER_BREAK = re.compile(r"[\r\n]+")
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -307,6 +344,16 @@ def _send_over_smtp(to: str, subject: str, text: str, html_body: str) -> Sent:
                 f"one included. Use 587, or 465 for implicit TLS."
             ),
         )
+
+    # Checked before dialling. smtplib raises UnicodeEncodeError deep inside
+    # the AUTH exchange, naming a position in a string nobody has seen.
+    for label, value in (
+        ("ATS_SMTP_USER", settings["user"]),
+        ("ATS_SMTP_PASSWORD", settings["password"]),
+    ):
+        complaint = _not_ascii(label, value)
+        if complaint:
+            return Sent(ok=False, skipped=True, detail=complaint)
 
     sender = mail_from() or settings["user"]
     # Gmail and most providers refuse to send as an address the session did not

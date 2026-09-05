@@ -251,6 +251,57 @@ def test_a_nonsense_port_falls_back_to_the_usual_one_rather_than_crashing():
     assert s[0].port == 587
 
 
+def test_a_password_pasted_with_its_quote_marks_is_named_not_crashed_on():
+    """The one this was written for.
+
+    SMTP authentication is ASCII only, so smtplib raises deep inside the AUTH
+    exchange:
+
+        UnicodeEncodeError: 'ascii' codec can't encode character '‹'
+        in position 30: ordinal not in range(128)
+
+    Position 30 is the first character of the password: the AUTH exchange is a
+    NUL, the username, a NUL and then the password, and the username was 28
+    characters long. Nothing in that sentence points at the password, which is
+    the only thing there is to look at.
+    """
+    wrapped = "‹App Password›"
+    with environment(**{**SMTP_ON, "ATS_SMTP_PASSWORD": wrapped}), fake_smtp() as s:
+        result = notify.send("m@example.com", "s", "t", "<p>h</p>")
+
+    assert not result.ok and result.skipped
+    assert "ATS_SMTP_PASSWORD" in result.detail
+    assert "position 1" in result.detail
+    assert "‹" in result.detail
+    assert s == [], "a connection was opened for a sign-in that cannot work"
+    # The password itself is not in the message - only the stray character.
+    assert "App Password" not in result.detail
+
+
+def test_the_usual_quote_marks_are_all_recognised_by_name():
+    """A password copied out of prose arrives wearing whatever was around it."""
+    for mark in ("‹", "“", "‘", "«", "’", " "):
+        with environment(**{**SMTP_ON, "ATS_SMTP_PASSWORD": mark + "abcd"}):
+            with fake_smtp():
+                detail = notify.send("m@example.com", "s", "t", "<p>h</p>").detail
+        assert "copied along with the text" in detail, repr(mark)
+
+
+def test_the_username_is_checked_too():
+    with environment(**{**SMTP_ON, "ATS_SMTP_USER": "“me@gmail.com”"}):
+        with fake_smtp():
+            result = notify.send("m@example.com", "s", "t", "<p>h</p>")
+    assert "ATS_SMTP_USER" in result.detail
+
+
+def test_an_ordinary_password_is_not_accused_of_anything():
+    # App Passwords are lowercase letters and spaces; ordinary ones have
+    # punctuation. Neither is non-ASCII, and neither should be stopped.
+    for password in ("abcd efgh ijkl mnop", "p@55w0rd!#$%^&*()_+-=[]{}|;:,.<>?"):
+        with environment(**{**SMTP_ON, "ATS_SMTP_PASSWORD": password}), fake_smtp():
+            assert notify.send("m@example.com", "s", "t", "<p>h</p>").ok, password
+
+
 def test_a_refused_sign_in_says_what_to_check_and_never_the_password():
     refused = smtplib.SMTPAuthenticationError(535, b"5.7.8 Username and Password not accepted")
     with environment(**SMTP_ON), fake_smtp(login_error=refused):
