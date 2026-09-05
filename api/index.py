@@ -1141,6 +1141,11 @@ class AlertsOut(BaseModel):
     #: Who a digest would reach. Empty is the state worth knowing about.
     recipients: list[str]
     mail_configured: bool
+    #: "resend", "smtp" or "none" - two ways to be misconfigured look identical
+    #: from outside, so the page names the one actually in use.
+    transport: str = "none"
+    #: The address a recipient would see it come from.
+    mail_from: str = ""
 
 
 def _current_alerts() -> list:
@@ -1156,10 +1161,13 @@ def list_alerts(admin: auth.AdminUser = Depends(require_admin)) -> AlertsOut:
     set of rules is a promise that the mail and the dashboard will eventually
     disagree.
     """
+    state = notify.status()
     return AlertsOut(
         alerts=[AlertOut(**a.as_dict()) for a in _current_alerts()],
         recipients=notify.alert_emails(),
-        mail_configured=notify.is_configured(),
+        mail_configured=state["configured"],
+        transport=state["transport"],
+        mail_from=state["from"],
     )
 
 

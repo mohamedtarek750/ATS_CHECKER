@@ -99,6 +99,29 @@ export default function NotificationsPage() {
         {/* -- who is being told ------------------------------------------- */}
         <div className="card space-y-4 px-5 py-5">
           <div>
+            <h2 className="font-medium">How it goes out</h2>
+            {state && state.transport !== "none" ? (
+              <p className="mt-2 text-sm text-muted">
+                Through{" "}
+                <strong className="text-ink">
+                  {state.transport === "smtp"
+                    ? "your own mailbox, over SMTP"
+                    : "Resend"}
+                </strong>
+                , appearing as{" "}
+                <strong className="text-ink">{state.mail_from}</strong>.
+              </p>
+            ) : (
+              <p className="mt-2 text-sm text-bad">
+                No route is configured, so nothing can reach anybody. Either{" "}
+                <code>RESEND_API_KEY</code> with <code>ATS_MAIL_FROM</code>, or{" "}
+                <code>ATS_SMTP_HOST</code>, <code>ATS_SMTP_USER</code> and{" "}
+                <code>ATS_SMTP_PASSWORD</code> to send from an ordinary mailbox.
+              </p>
+            )}
+          </div>
+
+          <div className="border-t pt-4">
             <h2 className="font-medium">Recipients</h2>
             {state && state.recipients.length > 0 ? (
               <ul className="mt-2 flex flex-wrap gap-2">
@@ -116,15 +139,6 @@ export default function NotificationsPage() {
               </p>
             )}
           </div>
-
-          {state && !state.mail_configured && (
-            <Note tone="bad">
-              <strong className="text-ink">No mail provider is configured</strong>
-              , so nothing can be sent to anybody. Set{" "}
-              <code>RESEND_API_KEY</code> and <code>ATS_MAIL_FROM</code>. Until
-              then this page still shows every finding — it just cannot post one.
-            </Note>
-          )}
 
           <div className="flex flex-wrap items-center gap-2 border-t pt-4">
             <button

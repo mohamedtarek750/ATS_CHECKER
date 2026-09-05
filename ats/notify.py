@@ -19,12 +19,34 @@ Three rules the code has to hold to:
   2. The applicant writes their own name and address. Both reach an email, so
      the name is escaped before it goes near HTML and stripped of the newlines
      that would otherwise let it inject headers.
-  3. With no API key configured, nothing is sent and nothing fails. The whole
+  3. With nothing configured, nothing is sent and nothing fails. The whole
      feature is optional.
 
+TWO WAYS TO POST A LETTER
+-------------------------
+Either is enough on its own. Resend is tried first when both are set, because
+an HTTP request suits a serverless function better than holding a TCP
+connection open.
+
+    # Resend. Needs a domain you can prove you own.
     RESEND_API_KEY=re_...
-    ATS_MAIL_FROM="Careers <careers@yourdomain.com>"   # a verified domain
+    ATS_MAIL_FROM="Careers <careers@yourdomain.com>"
+
+    # Or an ordinary mailbox, over SMTP. Needs no domain at all.
+    ATS_SMTP_HOST=smtp.gmail.com
+    ATS_SMTP_PORT=587
+    ATS_SMTP_USER=you@gmail.com
+    ATS_SMTP_PASSWORD=...        # Gmail: an App Password, not the account one
+    ATS_MAIL_FROM="ACUD Careers <you@gmail.com>"   # must be the same mailbox
+
     ATS_HR_EMAILS=hr@company.com,lead@company.com
+
+SMTP is what makes "send it from my own address" possible - Resend cannot,
+because gmail.com is not a domain anybody can verify as theirs. It is not the
+better option, only the available one, and the difference is worth knowing:
+a personal mailbox has that mailbox's daily send limit (a few hundred), puts a
+personal address in front of every applicant, and delivers their replies to a
+personal inbox.
 """
 
 from __future__ import annotations
@@ -33,14 +55,23 @@ import html
 import json
 import os
 import re
+import smtplib
+import ssl
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from email.message import EmailMessage
+from email.utils import parseaddr
 
 from .postings import UNASSIGNED_SLUG
 
 RESEND_ENDPOINT = "https://api.resend.com/emails"
 TIMEOUT_SECONDS = 10
+
+#: Vercel blocks outbound port 25 - the one mail servers use to relay to each
+#: other, and the one spam relays abuse. 587 and 465 are open, so those are the
+#: two that are any use here.
+BLOCKED_PORTS = {25}
 
 #: Anything that could start a new header line. A name is one line, always.
 _HEADER_BREAK = re.compile(r"[\r\n]+")
@@ -75,14 +106,48 @@ def hr_emails() -> list[str]:
     return [e.strip() for e in raw.split(",") if _EMAIL.match(e.strip())]
 
 
+def smtp_settings() -> dict:
+    """The mailbox to send through, or an empty dict if none is set up."""
+    host = (os.getenv("ATS_SMTP_HOST") or "").strip()
+    user = (os.getenv("ATS_SMTP_USER") or "").strip()
+    password = os.getenv("ATS_SMTP_PASSWORD") or ""
+    if not (host and user and password):
+        return {}
+
+    try:
+        port = int((os.getenv("ATS_SMTP_PORT") or "587").strip())
+    except ValueError:
+        port = 587
+    return {"host": host, "port": port, "user": user, "password": password}
+
+
+def transport() -> str:
+    """Which way mail actually goes out. Resend first when both are set.
+
+    An HTTP request finishes inside one serverless invocation; an SMTP
+    conversation holds a socket open across several round trips, which is the
+    shape serverless is worst at.
+    """
+    if api_key() and mail_from():
+        return "resend"
+    if smtp_settings():
+        return "smtp"
+    return "none"
+
+
 def is_configured() -> bool:
-    return bool(api_key() and mail_from())
+    return transport() != "none"
 
 
 def status() -> dict:
+    how = transport()
+    settings = smtp_settings()
     return {
-        "configured": is_configured(),
-        "from": mail_from() if is_configured() else "",
+        "configured": how != "none",
+        "transport": how,
+        # SMTP can send as its own mailbox without ATS_MAIL_FROM being set, so
+        # the address reported is the one a recipient would actually see.
+        "from": (mail_from() or settings.get("user", "")) if how != "none" else "",
         "hr_recipients": len(hr_emails()),
     }
 
@@ -93,11 +158,19 @@ def safe_name(name: str) -> str:
 
 
 def send(to: str, subject: str, text: str, html_body: str) -> Sent:
-    """One email. Returns what happened; never raises at the caller."""
-    if not is_configured():
+    """One email, by whichever route is configured.
+
+    Returns what happened and never raises at the caller: everything that calls
+    this has already succeeded at the thing that mattered, and a mail outage
+    must not undo it.
+    """
+    how = transport()
+    if how == "none":
         return Sent(ok=False, skipped=True, detail="no mail provider configured")
     if not _EMAIL.match(to.strip()):
         return Sent(ok=False, skipped=True, detail=f"not a usable address: {to!r}")
+    if how == "smtp":
+        return _send_over_smtp(to.strip(), safe_name(subject), text, html_body)
 
     payload = json.dumps(
         {
@@ -131,6 +204,79 @@ def send(to: str, subject: str, text: str, html_body: str) -> Sent:
         except Exception:  # noqa: BLE001
             detail = ""
         return Sent(ok=False, detail=f"{exc.code} {detail}".strip())
+    except Exception as exc:  # noqa: BLE001 - a mail outage is not an error here
+        return Sent(ok=False, detail=f"{type(exc).__name__}: {exc}"[:200])
+
+
+def _send_over_smtp(to: str, subject: str, text: str, html_body: str) -> Sent:
+    """Through an ordinary mailbox. One connection, one message, then closed.
+
+    No connection pooling on purpose. A serverless invocation is frozen the
+    moment it answers, and a socket held open across invocations is a socket
+    that is dead by the time the next one wants it.
+    """
+    settings = smtp_settings()
+    if settings["port"] in BLOCKED_PORTS:
+        return Sent(
+            ok=False,
+            skipped=True,
+            detail=(
+                f"port {settings['port']} is blocked in most hosting, this "
+                f"one included. Use 587, or 465 for implicit TLS."
+            ),
+        )
+
+    sender = mail_from() or settings["user"]
+    # Gmail and most providers refuse to send as an address the session did not
+    # authenticate as. Saying so beats a provider error nobody can read.
+    _, sender_address = parseaddr(sender)
+    if sender_address.lower() != settings["user"].lower():
+        return Sent(
+            ok=False,
+            skipped=True,
+            detail=(
+                f"ATS_MAIL_FROM is {sender_address!r} but the mailbox signing "
+                f"in is {settings['user']!r}. Most providers refuse to send as "
+                f"an address they did not authenticate as - make the two match."
+            ),
+        )
+
+    message = EmailMessage()
+    message["From"] = sender
+    message["To"] = to
+    message["Subject"] = subject
+    message.set_content(text)
+    message.add_alternative(html_body, subtype="html")
+
+    context = ssl.create_default_context()
+    try:
+        if settings["port"] == 465:
+            server = smtplib.SMTP_SSL(
+                settings["host"], settings["port"],
+                timeout=TIMEOUT_SECONDS, context=context,
+            )
+        else:
+            server = smtplib.SMTP(
+                settings["host"], settings["port"], timeout=TIMEOUT_SECONDS
+            )
+        with server:
+            if settings["port"] != 465:
+                server.starttls(context=context)
+            server.login(settings["user"], settings["password"])
+            server.send_message(message)
+        return Sent(ok=True)
+    except smtplib.SMTPAuthenticationError as exc:
+        # By far the most common failure, and the provider's own wording for it
+        # is unhelpful. The password is not in this message - only the fact
+        # that it was refused.
+        return Sent(
+            ok=False,
+            detail=(
+                f"the mailbox refused the sign-in ({exc.smtp_code}). For Gmail "
+                f"this means ATS_SMTP_PASSWORD is not an App Password, or "
+                f"2-Step Verification is off on the account."
+            ),
+        )
     except Exception as exc:  # noqa: BLE001 - a mail outage is not an error here
         return Sent(ok=False, detail=f"{type(exc).__name__}: {exc}"[:200])
 

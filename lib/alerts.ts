@@ -45,6 +45,10 @@ export interface AlertsResponse {
   /** Who a digest would reach. Empty is the state worth knowing about. */
   recipients: string[];
   mail_configured: boolean;
+  /** "resend" | "smtp" | "none". Which route the mail actually takes. */
+  transport: string;
+  /** The address a recipient would see it come from. */
+  mail_from: string;
 }
 
 export interface SendResult {
