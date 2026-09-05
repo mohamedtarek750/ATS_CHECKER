@@ -22,31 +22,39 @@ Three rules the code has to hold to:
   3. With nothing configured, nothing is sent and nothing fails. The whole
      feature is optional.
 
-TWO WAYS TO POST A LETTER
--------------------------
-Either is enough on its own. Resend is tried first when both are set, because
-an HTTP request suits a serverless function better than holding a TCP
-connection open.
+THREE WAYS TO POST A LETTER
+---------------------------
+Any one is enough. ATS_MAIL_TRANSPORT forces a choice; with it unset they are
+tried in the order below.
 
-    # Resend. Needs a domain you can prove you own.
+    # 1. Resend. Needs a domain you can prove you own.
     RESEND_API_KEY=re_...
     ATS_MAIL_FROM="Careers <careers@yourdomain.com>"
 
-    # Or an ordinary mailbox, over SMTP. Needs no domain at all.
+    # 2. An ordinary mailbox, over SMTP. Needs no domain.
     ATS_SMTP_HOST=smtp.gmail.com
     ATS_SMTP_PORT=587
     ATS_SMTP_USER=you@gmail.com
     ATS_SMTP_PASSWORD=...        # Gmail: an App Password, not the account one
     ATS_MAIL_FROM="ACUD Careers <you@gmail.com>"   # must be the same mailbox
 
+    # 3. The sheet's own Apps Script. Needs nothing new at all.
+    ATS_SCRIPT_URL=https://script.google.com/macros/s/AKfy.../exec
+    ATS_SCRIPT_KEY=...           # required for mail, unlike for storage
+
     ATS_HR_EMAILS=hr@company.com,lead@company.com
 
-SMTP is what makes "send it from my own address" possible - Resend cannot,
-because gmail.com is not a domain anybody can verify as theirs. It is not the
-better option, only the available one, and the difference is worth knowing:
-a personal mailbox has that mailbox's daily send limit (a few hundred), puts a
-personal address in front of every applicant, and delivers their replies to a
-personal inbox.
+The third is the one that costs nothing to set up, because the script is
+already deployed for storage and already runs AS THE SHEET'S OWNER - so it can
+send as them with no credential of any kind. It is the same mechanism a Google
+Sheets booking form uses to email a confirmation.
+
+Resend is first when several are configured: one HTTP request completes inside
+a single serverless invocation, and it sends from a domain rather than from a
+person. The other two send from somebody's personal mailbox, which means that
+mailbox's daily limit (100 a day through Apps Script on a gmail.com account,
+a few hundred over SMTP), a personal address in front of every applicant, and
+their replies landing in a personal inbox.
 """
 
 from __future__ import annotations
@@ -121,17 +129,42 @@ def smtp_settings() -> dict:
     return {"host": host, "port": port, "user": user, "password": password}
 
 
-def transport() -> str:
-    """Which way mail actually goes out. Resend first when both are set.
+def script_mail_ready() -> bool:
+    """Whether the sheet's script can be asked to send.
 
-    An HTTP request finishes inside one serverless invocation; an SMTP
-    conversation holds a socket open across several round trips, which is the
-    shape serverless is worst at.
+    The key is required, and not by accident: the Web app answers whoever
+    holds its URL, and an unkeyed send operation is an open relay running on
+    somebody's personal Gmail. The script refuses too - this is the same rule
+    said on the near side, so the reason reaches the person configuring it.
     """
-    if api_key() and mail_from():
-        return "resend"
-    if smtp_settings():
-        return "smtp"
+    url = (os.getenv("ATS_SCRIPT_URL") or "").strip()
+    key = (os.getenv("ATS_SCRIPT_KEY") or "").strip()
+    return bool(url and key)
+
+
+#: Tried in this order when ATS_MAIL_TRANSPORT does not name one. Resend leads
+#: because it sends from a domain rather than from a person, and finishes in a
+#: single request.
+_ORDER = ("resend", "smtp", "script")
+
+
+def transport() -> str:
+    """Which way mail actually goes out."""
+    available = {
+        "resend": bool(api_key() and mail_from()),
+        "smtp": bool(smtp_settings()),
+        "script": script_mail_ready(),
+    }
+
+    forced = (os.getenv("ATS_MAIL_TRANSPORT") or "").strip().lower()
+    if forced in available:
+        # Honoured only if it can actually work. Silently falling back would
+        # mean mail going out by a route somebody deliberately did not pick.
+        return forced if available[forced] else "none"
+
+    for name in _ORDER:
+        if available[name]:
+            return name
     return "none"
 
 
@@ -142,12 +175,24 @@ def is_configured() -> bool:
 def status() -> dict:
     how = transport()
     settings = smtp_settings()
+
+    # The address a recipient would actually see. SMTP can send as its own
+    # mailbox with ATS_MAIL_FROM unset; the script always sends as whoever owns
+    # the sheet, which this cannot know from here - so it says so rather than
+    # printing an address that would be a guess.
+    if how == "smtp":
+        seen = mail_from() or settings.get("user", "")
+    elif how == "script":
+        seen = mail_from() or "the Google account that owns the sheet"
+    elif how == "resend":
+        seen = mail_from()
+    else:
+        seen = ""
+
     return {
         "configured": how != "none",
         "transport": how,
-        # SMTP can send as its own mailbox without ATS_MAIL_FROM being set, so
-        # the address reported is the one a recipient would actually see.
-        "from": (mail_from() or settings.get("user", "")) if how != "none" else "",
+        "from": seen,
         "hr_recipients": len(hr_emails()),
     }
 
@@ -171,6 +216,8 @@ def send(to: str, subject: str, text: str, html_body: str) -> Sent:
         return Sent(ok=False, skipped=True, detail=f"not a usable address: {to!r}")
     if how == "smtp":
         return _send_over_smtp(to.strip(), safe_name(subject), text, html_body)
+    if how == "script":
+        return _send_over_script(to.strip(), safe_name(subject), text, html_body)
 
     payload = json.dumps(
         {
@@ -206,6 +253,41 @@ def send(to: str, subject: str, text: str, html_body: str) -> Sent:
         return Sent(ok=False, detail=f"{exc.code} {detail}".strip())
     except Exception as exc:  # noqa: BLE001 - a mail outage is not an error here
         return Sent(ok=False, detail=f"{type(exc).__name__}: {exc}"[:200])
+
+
+def _send_over_script(to: str, subject: str, text: str, html_body: str) -> Sent:
+    """Through the Apps Script deployed on the spreadsheet.
+
+    The script runs as the sheet's owner, so it sends as them and there is no
+    credential here at all - which is the whole appeal, and also why the shared
+    key is not optional for it.
+    """
+    from .backends.script import ScriptBackend
+
+    # Built here rather than reused from the storage backend: mail can go this
+    # way while applications are stored somewhere else entirely, and this class
+    # holds nothing but configuration read from the environment.
+    try:
+        script = ScriptBackend()
+    except Exception as exc:  # noqa: BLE001 - a misconfiguration, said plainly
+        return Sent(ok=False, skipped=True, detail=str(exc)[:200])
+
+    name, address = parseaddr(mail_from())
+    try:
+        script.send_mail(
+            to=to,
+            subject=subject,
+            text=text,
+            html=html_body,
+            # ATS_MAIL_FROM cannot change WHO it comes from - the script sends
+            # as its owner - but the name beside the address is free, so a
+            # message arrives as the careers team rather than as a person.
+            name=name or "",
+            reply_to=address or "",
+        )
+        return Sent(ok=True)
+    except Exception as exc:  # noqa: BLE001 - a mail outage is not an error here
+        return Sent(ok=False, detail=str(exc)[:200])
 
 
 def _send_over_smtp(to: str, subject: str, text: str, html_body: str) -> Sent:

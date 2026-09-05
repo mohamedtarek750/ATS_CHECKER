@@ -393,6 +393,8 @@ GUARDED = [
     ("GET", "/api/mail/status"),
     ("GET", "/api/alerts"),
     ("POST", "/api/alerts/send"),
+    ("GET", "/api/schedule"),
+    ("POST", "/api/schedule"),
 ]
 
 

@@ -111,6 +111,40 @@ class ScriptBackend:
         """Prove the whole path works before anybody depends on it."""
         return self._call("ping") or {}
 
+    # -- the script as a mail relay and a scheduler ------------------------
+    #
+    # Both live on this class because they are the same script, reached the
+    # same way, and the two mistakes people make - a /dev URL, and a
+    # deployment set to "Only myself" - produce the same two errors _call
+    # already knows how to explain.
+
+    def send_mail(
+        self,
+        to: str,
+        subject: str,
+        text: str,
+        html: str,
+        name: str = "",
+        reply_to: str = "",
+    ) -> dict:
+        """One email, sent by the script as the sheet's owner."""
+        return self._call(
+            "send_mail", to=to, subject=subject, text=text, html=html,
+            name=name, replyTo=reply_to,
+        ) or {}
+
+    def schedule(self) -> dict:
+        """When the daily run happens, and on whose clock."""
+        return self._call("get_schedule") or {}
+
+    def set_schedule(self, hour: int, url: str, secret: str) -> dict:
+        return self._call(
+            "set_schedule", hour=hour, url=url, secret=secret
+        ) or {}
+
+    def clear_schedule(self) -> dict:
+        return self._call("clear_schedule") or {}
+
     # -- postings ----------------------------------------------------------
     @staticmethod
     def _to_posting(record: dict) -> JobPosting:

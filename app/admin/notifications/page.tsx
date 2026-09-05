@@ -7,10 +7,33 @@ import { Alerts } from "@/components/Alerts";
 import { Note } from "@/components/Shell";
 import {
   fetchAlerts,
+  fetchSchedule,
   sendAlerts,
+  setSchedule,
   type AlertsResponse,
+  type Schedule,
   type SendResult,
 } from "@/lib/alerts";
+
+/** Each route, named for what it actually is rather than for its setting. */
+const ROUTE: Record<string, string> = {
+  resend: "Resend",
+  smtp: "your own mailbox, over SMTP",
+  script: "the Google Sheet's own Apps Script",
+};
+
+/** Midnight to 11pm, written the way somebody says a time out loud. */
+const HOURS = Array.from({ length: 24 }, (_, hour) => ({
+  hour,
+  label:
+    hour === 0
+      ? "12 midnight"
+      : hour === 12
+        ? "12 noon"
+        : hour < 12
+          ? `${hour} in the morning`
+          : `${hour - 12} in the ${hour < 18 ? "afternoon" : "evening"}`,
+}));
 
 /**
  * The notification centre, and the console for proving it works.
@@ -31,6 +54,9 @@ export default function NotificationsPage() {
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState<SendResult | null>(null);
   const [sentAt, setSentAt] = useState("");
+  const [plan, setPlan] = useState<Schedule | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [planError, setPlanError] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -43,7 +69,21 @@ export default function NotificationsPage() {
 
   useEffect(() => {
     load();
+    fetchSchedule()
+      .then(setPlan)
+      .catch(() => setPlan(null));
   }, [load]);
+
+  async function choose(hour: number | null) {
+    setSaving(true);
+    setPlanError("");
+    try {
+      setPlan(await setSchedule(hour));
+    } catch (e) {
+      setPlanError(e instanceof Error ? e.message : "Could not save that.");
+    }
+    setSaving(false);
+  }
 
   async function send(test: boolean) {
     setBusy(true);
@@ -103,11 +143,7 @@ export default function NotificationsPage() {
             {state && state.transport !== "none" ? (
               <p className="mt-2 text-sm text-muted">
                 Through{" "}
-                <strong className="text-ink">
-                  {state.transport === "smtp"
-                    ? "your own mailbox, over SMTP"
-                    : "Resend"}
-                </strong>
+                <strong className="text-ink">{ROUTE[state.transport] ?? state.transport}</strong>
                 , appearing as{" "}
                 <strong className="text-ink">{state.mail_from}</strong>.
               </p>
@@ -201,6 +237,75 @@ export default function NotificationsPage() {
                 </>
               )}
             </div>
+          )}
+        </div>
+
+        {/* -- when it goes out --------------------------------------------- */}
+        <div className="card space-y-3 px-5 py-5">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="font-medium">When it goes out</h2>
+            {plan?.timezone && (
+              <span className="text-xs text-muted">
+                on the sheet&rsquo;s clock &middot; {plan.timezone}
+              </span>
+            )}
+          </div>
+
+          {plan && !plan.editable ? (
+            <p className="text-sm leading-relaxed text-muted">
+              {plan.detail ||
+                "The hour cannot be changed from here on this deployment."}
+            </p>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  className="field w-56"
+                  value={plan?.enabled && plan.hour !== null ? plan.hour : ""}
+                  disabled={saving || !plan}
+                  onChange={(e) =>
+                    choose(e.target.value === "" ? null : Number(e.target.value))
+                  }
+                >
+                  <option value="">Do not send on a schedule</option>
+                  {HOURS.map(({ hour, label }) => (
+                    <option key={hour} value={hour}>
+                      Every day at {label}
+                    </option>
+                  ))}
+                </select>
+                {saving && <span className="text-sm text-muted">Saving…</span>}
+              </div>
+
+              <p className="text-sm leading-relaxed text-muted">
+                {plan?.enabled && plan.hour !== null ? (
+                  <>
+                    The digest goes out once a day at{" "}
+                    <strong className="text-ink">
+                      {HOURS[plan.hour].label}
+                    </strong>
+                    , and not at all on a day when nothing is open. Applications
+                    are still read every morning either way.
+                  </>
+                ) : (
+                  <>
+                    Nothing is scheduled here, so the digest goes out on the
+                    deployment&rsquo;s own daily run instead. Pick an hour to
+                    move it.
+                  </>
+                )}
+              </p>
+
+              {planError && <p className="text-sm text-bad">{planError}</p>}
+
+              <p className="text-xs leading-relaxed text-muted">
+                The trigger lives in the Google Sheet&rsquo;s Apps Script,
+                because that is the only part of this that can be moved without
+                a redeploy — the platform&rsquo;s own cron time is fixed when
+                the project is deployed. Google fires it within the chosen hour
+                rather than on the minute.
+              </p>
+            </>
           )}
         </div>
 

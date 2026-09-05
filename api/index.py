@@ -1231,6 +1231,118 @@ def _public_base_url() -> str:
     return f"https://{host}" if host else ""
 
 
+class ScheduleOut(BaseModel):
+    """When the daily digest goes out, and whether it can be changed at all."""
+
+    #: False when there is no Apps Script to hold a trigger. The fixed cron in
+    #: vercel.json still runs; it just cannot be moved from a page.
+    editable: bool
+    enabled: bool = False
+    hour: int | None = None
+    #: Whose clock the hour is on. An hour without one is not a time.
+    timezone: str = ""
+    detail: str = ""
+
+
+def _script_for_schedule():
+    """The Apps Script client, or a reason it cannot be used.
+
+    The schedule lives in the script rather than in this app because that is
+    where the thing that fires lives: Vercel's cron time is fixed in
+    vercel.json when the project is deployed, so nothing on a page can move it.
+    An Apps Script trigger can be created and destroyed at will.
+    """
+    from ats.backends.script import ScriptBackend
+
+    if not (os.getenv("ATS_SCRIPT_URL") or "").strip():
+        return None, (
+            "The schedule is kept by the Google Sheet's Apps Script, and "
+            "ATS_SCRIPT_URL is not set. Without it the digest goes out on the "
+            "fixed daily cron instead, which can only be changed by editing "
+            "vercel.json and redeploying."
+        )
+    if not (os.getenv("ATS_SCRIPT_KEY") or "").strip():
+        return None, (
+            "Set SHARED_KEY in the Apps Script and the same value in "
+            "ATS_SCRIPT_KEY. Changing the schedule is refused without it, "
+            "because that URL answers whoever holds it."
+        )
+    try:
+        return ScriptBackend(), ""
+    except BackendError as exc:
+        return None, str(exc)
+
+
+@app.get("/api/schedule", response_model=ScheduleOut)
+def read_schedule(admin: auth.AdminUser = Depends(require_admin)) -> ScheduleOut:
+    script, why = _script_for_schedule()
+    if script is None:
+        return ScheduleOut(editable=False, detail=why)
+
+    try:
+        state = script.schedule()
+    except BackendError as exc:
+        return ScheduleOut(editable=False, detail=str(exc))
+
+    return ScheduleOut(
+        editable=True,
+        enabled=bool(state.get("enabled")),
+        hour=state.get("hour"),
+        timezone=state.get("timezone", ""),
+    )
+
+
+class ScheduleIn(BaseModel):
+    #: 0-23 on the spreadsheet's clock, or null to stop the daily send.
+    hour: int | None = None
+
+
+@app.post("/api/schedule", response_model=ScheduleOut)
+def write_schedule(
+    body: ScheduleIn, admin: auth.AdminUser = Depends(require_admin)
+) -> ScheduleOut:
+    """Move the daily digest to a different hour, or switch it off."""
+    script, why = _script_for_schedule()
+    if script is None:
+        raise HTTPException(400, why)
+
+    if body.hour is None:
+        state = script.clear_schedule()
+        return ScheduleOut(
+            editable=True,
+            enabled=bool(state.get("enabled")),
+            hour=state.get("hour"),
+            timezone=state.get("timezone", ""),
+        )
+
+    if not 0 <= body.hour <= 23:
+        raise HTTPException(400, "The hour has to be between 0 and 23.")
+
+    base = _public_base_url()
+    if not base:
+        raise HTTPException(
+            400,
+            "The scheduler has to know which deployment to wake up. Set "
+            "ATS_PUBLIC_URL to this site's address.",
+        )
+    secret = (os.getenv("CRON_SECRET") or "").strip()
+    if not secret:
+        raise HTTPException(
+            400,
+            "Set CRON_SECRET in the deployment. The scheduled run carries it, "
+            "and without one the endpoint it calls refuses everybody - "
+            "including the scheduler.",
+        )
+
+    state = script.set_schedule(hour=body.hour, url=base, secret=secret)
+    return ScheduleOut(
+        editable=True,
+        enabled=bool(state.get("enabled")),
+        hour=state.get("hour"),
+        timezone=state.get("timezone", ""),
+    )
+
+
 @app.get("/api/mail/status")
 def mail_status(admin: auth.AdminUser = Depends(require_admin)) -> dict:
     """Whether email is set up, so the dashboard can say so rather than guess."""
@@ -1370,7 +1482,9 @@ def assign_to_vacancy(
 
 
 @app.post("/api/cron/intake", response_model=CronOut)
-def cron_intake(authorization: str | None = Header(default=None)) -> CronOut:
+def cron_intake(
+    source: str = "", authorization: str | None = Header(default=None)
+) -> CronOut:
     """Read whatever has arrived, then tell the hiring team once.
 
     Runs on a schedule so applications do not sit unread until somebody happens
@@ -1411,7 +1525,25 @@ def cron_intake(authorization: str | None = Header(default=None)) -> CronOut:
 
     # Alerts last, so they are computed against what the sweep just read
     # rather than against the backlog it has now cleared.
-    found = _current_alerts()
+    #
+    # Two schedulers can reach here: Vercel's cron, at the fixed hour in
+    # vercel.json, and the Apps Script trigger at whatever hour was chosen on
+    # the dashboard. Both must read the CVs; only one may send the digest, or
+    # it arrives twice a day. The chosen one wins, and the fixed one stands in
+    # only while nothing has been chosen.
+    scheduled_elsewhere = False
+    if source != "schedule":
+        script, _ = _script_for_schedule()
+        if script is not None:
+            try:
+                scheduled_elsewhere = bool(script.schedule().get("enabled"))
+            except BackendError:
+                scheduled_elsewhere = False
+
+    found = [] if scheduled_elsewhere else _current_alerts()
+    if scheduled_elsewhere:
+        detail.append("alerts: left to the scheduled run set on the dashboard")
+
     if found and notify.alert_emails():
         results = notify.alert_digest(found, base_url=_public_base_url())
         delivered = sum(1 for r in results if r.ok)

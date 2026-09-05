@@ -22,6 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from ats import notify  # noqa: E402
 from ats.backends.script import ScriptBackend, ScriptError  # noqa: E402
 from ats.job_profile import JobProfile, Requirement  # noqa: E402
 from ats.models import CandidateProfile  # noqa: E402
@@ -61,6 +62,11 @@ class FakeScript:
         self.postings: list[dict] = []
         self.applications: list[dict] = []
         self.files: dict[str, bytes] = {}
+        self.mail: list[dict] = []
+        self.schedule = {
+            "enabled": False, "hour": None, "timezone": "Africa/Cairo", "url": "",
+        }
+        self.cron_secret = ""
         self.key = key
         self.html_response = html_response
         self.calls: list[str] = []
@@ -129,6 +135,41 @@ class FakeScript:
             ]
             self.postings = [p for p in self.postings if p["slug"] != slug]
             return {"slug": slug, "applications": len(going)}
+
+        if op == "send_mail":
+            # The real script refuses this without a key, and so does the
+            # double - the rule is the point of the operation, not a detail.
+            if not self.key:
+                raise AssertionError(
+                    "the real script would refuse send_mail with no SHARED_KEY"
+                )
+            self.mail.append(payload)
+            return {"sent": 1, "to": payload["to"], "remaining": 99}
+
+        if op == "get_schedule":
+            return dict(self.schedule)
+
+        if op == "set_schedule":
+            if not self.key:
+                raise AssertionError(
+                    "the real script would refuse set_schedule with no SHARED_KEY"
+                )
+            hour = int(payload["hour"])
+            if not 0 <= hour <= 23:
+                raise AssertionError("the real script would reject that hour")
+            self.schedule = {
+                "enabled": True, "hour": hour,
+                "timezone": "Africa/Cairo", "url": payload["url"],
+            }
+            self.cron_secret = payload.get("secret", "")
+            return dict(self.schedule)
+
+        if op == "clear_schedule":
+            self.schedule = {
+                "enabled": False, "hour": None,
+                "timezone": "Africa/Cairo", "url": self.schedule.get("url", ""),
+            }
+            return dict(self.schedule)
 
         if op == "put_file":
             self.files[payload["name"]] = base64.b64decode(payload["data"])
@@ -376,19 +417,158 @@ def test_deleting_a_posting_takes_its_applications_and_files():
         assert backend.cv_bytes("a2") == b"%PDF-1.4 cv"
 
 
-def test_the_script_file_implements_every_operation_the_backend_calls():
-    """The two halves are deployed separately and can drift apart.
+def test_the_script_can_send_mail_as_the_sheets_owner():
+    """The whole appeal: no API key, no domain, no App Password.
 
-    The .gs file is pasted into the sheet by hand. An operation added here and
-    not there fails only in production, on the first person to press the
-    button - so the file is read and checked instead.
+    The script already runs as the person who owns the spreadsheet, so it can
+    send as them. This is the same mechanism a Google Sheets booking form uses
+    to email a confirmation.
+    """
+    with script(key="s3cret") as fake, environment(
+        ATS_SCRIPT_URL=SCRIPT_URL, ATS_SCRIPT_KEY="s3cret"
+    ):
+        result = ScriptBackend().send_mail(
+            to="malak@example.com",
+            subject="4 critical workforce alerts",
+            text="plain",
+            html="<p>rich</p>",
+            name="ACUD Careers",
+        )
+
+    assert result["sent"] == 1
+    assert len(fake.mail) == 1
+    assert fake.mail[0]["to"] == "malak@example.com"
+    assert fake.mail[0]["subject"] == "4 critical workforce alerts"
+    assert fake.mail[0]["html"] == "<p>rich</p>"
+    assert fake.mail[0]["name"] == "ACUD Careers"
+
+
+def test_notify_routes_through_the_script_when_that_is_all_there_is():
+    with script(key="s3cret") as fake, environment(
+        ATS_SCRIPT_URL=SCRIPT_URL, ATS_SCRIPT_KEY="s3cret",
+        RESEND_API_KEY=None, ATS_SMTP_HOST=None,
+        ATS_MAIL_FROM="ACUD Careers <careers@acud.eg>",
+    ):
+        assert notify.transport() == "script"
+        result = notify.send("malak@example.com", "Subject", "text", "<p>html</p>")
+
+    assert result.ok, result.detail
+    assert len(fake.mail) == 1
+    # ATS_MAIL_FROM cannot change who it comes from - the script sends as its
+    # owner - but the display name and reply-to are still worth carrying.
+    assert fake.mail[0]["name"] == "ACUD Careers"
+    assert fake.mail[0]["replyTo"] == "careers@acud.eg"
+
+
+def test_mail_through_the_script_is_refused_without_a_shared_key():
+    """An unkeyed Web app answers whoever holds the URL.
+
+    That is a fair trade for a sheet of test data. It is not a fair trade for
+    sending mail, because an open send endpoint is an open relay running on a
+    real person's Gmail, on their quota, in their name.
+    """
+    with environment(ATS_SCRIPT_URL=SCRIPT_URL, ATS_SCRIPT_KEY=None,
+                     RESEND_API_KEY=None, ATS_SMTP_HOST=None):
+        assert not notify.script_mail_ready()
+        assert notify.transport() == "none"
+
+    with environment(ATS_SCRIPT_URL=SCRIPT_URL, ATS_SCRIPT_KEY="s3cret",
+                     RESEND_API_KEY=None, ATS_SMTP_HOST=None):
+        assert notify.script_mail_ready()
+
+
+def test_a_transport_named_but_not_configured_sends_nothing():
+    """Falling back silently would mean mail leaving by a route somebody
+    deliberately did not pick."""
+    with environment(ATS_SCRIPT_URL=SCRIPT_URL, ATS_SCRIPT_KEY="s3cret",
+                     ATS_MAIL_TRANSPORT="resend", RESEND_API_KEY=None):
+        assert notify.transport() == "none"
+
+    with environment(ATS_SCRIPT_URL=SCRIPT_URL, ATS_SCRIPT_KEY="s3cret",
+                     ATS_MAIL_TRANSPORT="script"):
+        assert notify.transport() == "script"
+
+
+def test_the_digest_goes_out_one_message_per_person_through_the_script():
+    from ats.alerts import Alert
+
+    found = [
+        Alert(id="a", level="critical", title="Legal is three short",
+              detail="Nothing is advertised.", source="forecast",
+              action_label="Add a job", action_href="/admin"),
+    ]
+    with script(key="s3cret") as fake, environment(
+        ATS_SCRIPT_URL=SCRIPT_URL, ATS_SCRIPT_KEY="s3cret",
+        RESEND_API_KEY=None, ATS_SMTP_HOST=None,
+        ATS_ALERT_EMAILS="a@example.com,b@example.com",
+    ):
+        results = notify.alert_digest(found, base_url="https://acud.example.com")
+
+    assert len(results) == 2 and all(r.ok for r in results)
+    assert [m["to"] for m in fake.mail] == ["a@example.com", "b@example.com"]
+    assert "Legal is three short" in fake.mail[0]["text"]
+    assert "https://acud.example.com" in fake.mail[0]["text"]
+
+
+def test_a_failing_script_is_reported_rather_than_raised():
+    """The CV is already stored, and the alert is already on the dashboard."""
+    with environment(ATS_SCRIPT_URL=SCRIPT_URL, ATS_SCRIPT_KEY="s3cret",
+                     RESEND_API_KEY=None, ATS_SMTP_HOST=None):
+        with script(key="different-key"):
+            result = notify.send("m@example.com", "s", "t", "<p>h</p>")
+
+    assert not result.ok
+    assert "key" in result.detail.lower()
+
+
+# -- the schedule ------------------------------------------------------------
+def test_the_hour_is_kept_where_the_thing_that_fires_lives():
+    """Vercel's cron time is fixed in vercel.json when the project deploys, so
+    nothing on a page can move it. An Apps Script trigger can be made and
+    destroyed at will, which is why the schedule lives there."""
+    with script(key="s3cret") as fake, environment(
+        ATS_SCRIPT_URL=SCRIPT_URL, ATS_SCRIPT_KEY="s3cret"
+    ):
+        backend = ScriptBackend()
+        assert backend.schedule()["enabled"] is False
+
+        saved = backend.set_schedule(
+            hour=22, url="https://acud.example.com", secret="cron-secret"
+        )
+        assert saved["enabled"] is True
+        assert saved["hour"] == 22
+        # An hour with no clock behind it is not a time.
+        assert saved["timezone"] == "Africa/Cairo"
+        assert fake.cron_secret == "cron-secret"
+
+        assert backend.clear_schedule()["enabled"] is False
+        assert backend.schedule()["hour"] is None
+
+
+def test_the_script_file_still_implements_every_operation_the_backend_calls():
+    """The two halves are deployed separately and drift silently.
+
+    The .gs file is pasted into the sheet by hand, so an operation added here
+    and not there fails only in production, on the first person to press the
+    button.
     """
     source = (ROOT / "scripts" / "ats_sheet_backend.gs").read_text(encoding="utf-8")
     for op in (
-        "ping", "postings", "save_posting", "applications", "save_application",
-        "delete_posting", "put_file", "get_file",
+        "ping", "postings", "save_posting", "delete_posting", "applications",
+        "save_application", "send_mail", "set_schedule", "get_schedule",
+        "clear_schedule", "put_file", "get_file",
     ):
         assert f"{op}: function" in source, f"the script has no {op} handler"
+
+    # And the two operations that must never run on an unkeyed URL say so.
+    for guarded in ("send_mail", "set_schedule"):
+        body = source.split(f"{guarded}: function")[1].split("},")[0]
+        assert "requireKey" in body, f"{guarded} does not require a key"
+
+    # The trigger has something to call, and it wakes the app rather than
+    # deciding for itself what is worth an alert.
+    assert "function dailyDigest()" in source
+    assert "/api/cron/intake?source=schedule" in source
 
 
 if __name__ == "__main__":

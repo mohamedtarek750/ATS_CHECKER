@@ -60,6 +60,31 @@ export interface SendResult {
   detail?: string;
 }
 
+export interface Schedule {
+  /** False when no Apps Script holds the trigger, so the hour is fixed. */
+  editable: boolean;
+  enabled: boolean;
+  hour: number | null;
+  /** Whose clock the hour is on. An hour without one is not a time. */
+  timezone: string;
+  detail?: string;
+}
+
+export async function fetchSchedule(): Promise<Schedule> {
+  return unwrapAdmin<Schedule>(await adminFetch("/api/schedule"));
+}
+
+/** `hour` null switches the daily send off without changing anything else. */
+export async function setSchedule(hour: number | null): Promise<Schedule> {
+  return unwrapAdmin<Schedule>(
+    await adminFetch("/api/schedule", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hour }),
+    })
+  );
+}
+
 export async function fetchAlerts(): Promise<AlertsResponse> {
   return unwrapAdmin<AlertsResponse>(await adminFetch("/api/alerts"));
 }

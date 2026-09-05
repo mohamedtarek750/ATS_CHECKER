@@ -161,6 +161,72 @@ function fileNamed(name) {
   return found.hasNext() ? found.next() : null;
 }
 
+/** Operations that must never run on an unkeyed URL. */
+function requireKey(what) {
+  if (SHARED_KEY) return;
+  throw new Error(
+    what + " needs SHARED_KEY set at the top of this script, and the same " +
+    "value in ATS_SCRIPT_KEY. Without it, anybody holding this URL could do " +
+    "it as you."
+  );
+}
+
+// ── the daily run ───────────────────────────────────────────────────────────
+
+/**
+ * What the time-driven trigger calls.
+ *
+ * It does not build the digest itself - it wakes the app up, which reads the
+ * CVs that arrived and sends the alerts. Deciding what is worth an alert is
+ * one job, done in one place, and this is not that place.
+ */
+function dailyDigest() {
+  var props = PropertiesService.getScriptProperties();
+  var url = props.getProperty("ATS_URL");
+  if (!url) return;
+
+  var response = UrlFetchApp.fetch(url + "/api/cron/intake?source=schedule", {
+    method: "post",
+    headers: {
+      Authorization: "Bearer " + (props.getProperty("ATS_CRON_SECRET") || ""),
+    },
+    muteHttpExceptions: true,
+  });
+
+  // Left in the execution log rather than swallowed: a schedule that has been
+  // failing quietly for a fortnight is worse than one that never ran.
+  Logger.log("daily digest: " + response.getResponseCode() +
+             " " + response.getContentText().slice(0, 300));
+}
+
+function clearDigestTriggers() {
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === "dailyDigest") {
+      ScriptApp.deleteTrigger(triggers[i]);
+    }
+  }
+}
+
+function currentSchedule() {
+  var props = PropertiesService.getScriptProperties();
+  var running = false;
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === "dailyDigest") running = true;
+  }
+
+  var hour = props.getProperty("ATS_HOUR");
+  return {
+    enabled: running,
+    hour: hour === null ? null : Number(hour),
+    // The hour means nothing without saying whose clock it is on. This is the
+    // spreadsheet's timezone, which is the one the person setting it sees.
+    timezone: Session.getScriptTimeZone(),
+    url: props.getProperty("ATS_URL") || "",
+  };
+}
+
 // ── operations ──────────────────────────────────────────────────────────────
 
 var HANDLERS = {
@@ -228,6 +294,94 @@ var HANDLERS = {
   save_application: function (request) {
     upsert("applications", APPLICATION_COLUMNS, request.record, "id");
     return request.record;
+  },
+
+  /**
+   * Send an email as the account that owns this sheet.
+   *
+   * This is why the ATS needs no mail provider at all: the script already runs
+   * as you, so it can send as you.
+   *
+   * SHARED_KEY IS NOT OPTIONAL FOR THIS ONE. The Web app answers whoever holds
+   * its URL, which is a fair trade for a sheet of test data and is not a fair
+   * trade for the ability to send mail from a real person's Gmail, on their
+   * quota, in their name. Without a key this refuses rather than quietly
+   * becoming an open relay.
+   *
+   * Quota: 100 recipients a day on a gmail.com account, 1,500 on Workspace.
+   * MailApp throws when it runs out; that is reported rather than swallowed.
+   */
+  send_mail: function (request) {
+    requireKey("Sending mail");
+    if (!request.to || !request.subject) {
+      throw new Error("send_mail needs a 'to' and a 'subject'.");
+    }
+
+    var message = {
+      to: String(request.to),
+      subject: String(request.subject),
+      htmlBody: String(request.html || ""),
+      body: String(request.text || ""),
+    };
+    // The name beside the address, so it arrives as the careers team rather
+    // than as somebody's personal account.
+    if (request.name) message.name = String(request.name);
+    if (request.replyTo) message.replyTo = String(request.replyTo);
+
+    MailApp.sendEmail(message);
+    return {
+      sent: 1,
+      to: message.to,
+      remaining: MailApp.getRemainingDailyQuota(),
+    };
+  },
+
+  /**
+   * Move the daily run to a different hour.
+   *
+   * The schedule lives here rather than in the app because this is where the
+   * thing that fires lives. Vercel's cron time is fixed in vercel.json when
+   * the project is deployed, so it cannot be moved from a page; an Apps Script
+   * trigger can be created and destroyed at will, in the spreadsheet's own
+   * timezone, which is the one the person choosing "10 at night" means.
+   */
+  set_schedule: function (request) {
+    requireKey("Changing the schedule");
+
+    var hour = Number(request.hour);
+    if (!(hour >= 0 && hour <= 23)) {
+      throw new Error("Hour must be between 0 and 23.");
+    }
+    if (!request.url) {
+      throw new Error("set_schedule needs the deployment's URL to call.");
+    }
+
+    var props = PropertiesService.getScriptProperties();
+    props.setProperty("ATS_URL", String(request.url).replace(/\/+$/, ""));
+    props.setProperty("ATS_CRON_SECRET", String(request.secret || ""));
+    props.setProperty("ATS_HOUR", String(hour));
+
+    clearDigestTriggers();
+    ScriptApp.newTrigger("dailyDigest")
+      .timeBased()
+      .atHour(hour)
+      .everyDays(1)
+      .create();
+
+    return currentSchedule();
+  },
+
+  /** What the schedule is now, for the page that sets it. */
+  get_schedule: function () {
+    return currentSchedule();
+  },
+
+  /** Stop the daily run without removing anything else. */
+  clear_schedule: function () {
+    requireKey("Changing the schedule");
+    clearDigestTriggers();
+    PropertiesService.getScriptProperties().deleteProperty("ATS_HOUR");
+    return currentSchedule();
   },
 
   /** The CV itself. Sent as base64 because a sheet cell cannot hold a file. */
