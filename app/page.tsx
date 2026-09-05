@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { AcudMark } from "@/components/AcudMark";
 import { CvField } from "@/components/CvField";
 import { Note } from "@/components/Shell";
@@ -181,8 +182,13 @@ function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-dvh flex-col">
       <header className="page-header">
-        <div className="mx-auto w-full max-w-2xl px-6 py-3.5">
+        <div className="mx-auto flex w-full max-w-2xl items-center justify-between gap-3 px-6 py-3.5">
           <AcudMark subtitle="Careers" />
+          {/* Named for who it is for. An applicant should be able to tell at a
+              glance that this is not the button they came here to press. */}
+          <Link href="/admin" className="btn-ghost shrink-0 text-sm">
+            Staff sign in
+          </Link>
         </div>
       </header>
 

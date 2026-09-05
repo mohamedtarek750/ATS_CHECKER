@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { AcudMark } from "@/components/AcudMark";
 import { Note } from "./Shell";
 import {
@@ -127,6 +128,13 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
             </div>
           )}
         </div>
+
+        <p className="mt-5 text-center text-xs text-muted">
+          Not staff?{" "}
+          <Link href="/" className="underline hover:text-ink">
+            Go to the careers page
+          </Link>
+        </p>
       </Centered>
     );
   }
