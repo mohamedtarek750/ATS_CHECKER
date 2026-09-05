@@ -905,6 +905,51 @@ def test_a_storage_problem_says_what_is_wrong_instead_of_returning_500():
         backends.reset()
 
 
+def test_the_application_page_can_choose_a_job_and_the_cv_lands_on_it():
+    """The bug this fixes: a CV sent from the front page had nowhere to go but
+    the unassigned pile, so a recruiter who had just opened a job looked at it
+    and saw no applicants."""
+    client = admin_client()
+    with environment(ATS_AUTH="off"):
+        cv = (ROOT / "samples" / "01_data_analyst_omar.pdf").read_bytes()
+        slug = client.post(
+            "/api/postings", json={"job": json.loads(make_job().model_dump_json())}
+        ).json()["slug"]
+
+        # The picker's source: open jobs, titles only, holding pen excluded.
+        open_jobs = client.get("/api/public/postings").json()
+        assert [j["slug"] for j in open_jobs] == [slug]
+        assert "requirements" not in open_jobs[0], (
+            "publishing the checklist tells applicants what to paste"
+        )
+        assert postings.UNASSIGNED_SLUG not in [j["slug"] for j in open_jobs]
+
+        receipt = client.post(
+            f"/api/public/postings/{slug}/apply",
+            data={"full_name": "Mohamed", "email": "m@e.com", "phone": ""},
+            files={"file": ("cv.pdf", cv, "application/pdf")},
+        ).json()
+        client.post(f"/api/public/applications/{receipt['id']}/read")
+
+        landed = client.get(f"/api/postings/{slug}/applications").json()["results"]
+        assert [r["full_name"] for r in landed] == ["Mohamed"]
+
+        # And the receipt still says nothing about how they did.
+        assert set(receipt) == {"id", "full_name", "status"}
+
+
+def test_a_closed_job_is_not_offered_to_applicants():
+    client = admin_client()
+    with environment(ATS_AUTH="off"):
+        slug = client.post(
+            "/api/postings", json={"job": json.loads(make_job().model_dump_json())}
+        ).json()["slug"]
+        assert len(client.get("/api/public/postings").json()) == 1
+
+        client.post(f"/api/postings/{slug}/status?status=closed")
+        assert client.get("/api/public/postings").json() == []
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):

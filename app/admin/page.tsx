@@ -63,7 +63,7 @@ export default function AdminPage() {
             <Link href="/workforce" className="btn-ghost text-sm">
               Planning
             </Link>
-            <Link href="/" className="btn-ghost text-sm">
+            <Link href="/admin/screen" className="btn-ghost text-sm">
               Quick check
             </Link>
           </div>

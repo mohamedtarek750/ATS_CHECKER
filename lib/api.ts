@@ -597,6 +597,11 @@ export function requestRead(applicationId: string): void {
 export const UNASSIGNED_SLUG = "unassigned";
 
 /** A CV sent in without applying to a particular role. */
+/** The open jobs, for the application page's picker. Titles only. */
+export async function publicPostings(): Promise<PublicPosting[]> {
+  return unwrap<PublicPosting[]>(await fetch("/api/public/postings"));
+}
+
 export async function submitOpenApplication(
   fields: { full_name: string; email: string; phone: string },
   file: File

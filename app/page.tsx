@@ -1,193 +1,228 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import JobStep from "@/components/JobStep";
-import Results from "@/components/Results";
+import { useEffect, useState } from "react";
 import { AcudMark } from "@/components/AcudMark";
-import { Note, Step } from "@/components/Shell";
-import Uploads, { type UploadRow } from "@/components/Uploads";
+import { CvField } from "@/components/CvField";
+import { Note } from "@/components/Shell";
 import {
-  MATCH_BATCH,
-  health,
-  matchAll,
-  type Health,
-  type JobProfile,
-  type MatchResponse,
+  publicPostings,
+  requestRead,
+  submitApplication,
+  submitOpenApplication,
+  type PublicPosting,
 } from "@/lib/api";
 
-export default function Page() {
-  const [rows, setRows] = useState<UploadRow[]>([]);
-  const [job, setJob] = useState<JobProfile | null>(null);
-  const [results, setResults] = useState<MatchResponse | null>(null);
-  const [server, setServer] = useState<Health | null>(null);
+/**
+ * The front door: where somebody applies.
+ *
+ * This is what anybody visiting the site sees, so it does one thing - takes a
+ * person's details and their CV - and tells them nothing about how they will be
+ * assessed. It used to be the recruiter's screening tool, which meant a visitor
+ * could paste in a job description and watch themselves be scored against it.
+ * That tool still exists, behind the sign-in at /admin/screen, where it belongs.
+ *
+ * The job picker is the other half of the fix. Without it a CV sent from here
+ * had nowhere to go but the unassigned pile, so a recruiter who had just opened
+ * a job would look at it and see no applicants.
+ */
+export default function ApplyHome() {
+  const [jobs, setJobs] = useState<PublicPosting[] | null>(null);
+  const [jobSlug, setJobSlug] = useState("");
+
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+
   const [busy, setBusy] = useState(false);
-  const [matched, setMatched] = useState({ done: 0, total: 0 });
   const [error, setError] = useState("");
+  const [sent, setSent] = useState(false);
 
   useEffect(() => {
-    health().then(setServer).catch(() => setServer(null));
+    publicPostings()
+      .then((open) => {
+        setJobs(open);
+        // One job open is the common case at this size; choosing it for them
+        // saves a decision that has only one answer.
+        if (open.length === 1) setJobSlug(open[0].slug);
+      })
+      .catch(() => setJobs([]));
   }, []);
 
-  // A changed job means any previous ranking is stale.
-  useEffect(() => setResults(null), [job]);
+  const chosen = jobs?.find((j) => j.slug === jobSlug) ?? null;
 
-  const ready = rows.filter((r) => r.status === "done" && r.parsed);
-  const provider = server?.provider ?? "offline";
-
-  // A link back to the original document, so a recruiter can read the CV itself
-  // rather than trusting the summary of it. The file is already in the browser -
-  // an object URL points at that copy, so opening it uploads nothing and stores
-  // nothing. Keyed on name and size so it is rebuilt when the pool changes but
-  // not on every re-render while files are still being read.
-  const poolKey = ready.map((r) => `${r.file.name}|${r.file.size}`).join("\n");
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const fileUrls = useMemo(() => {
-    const urls: Record<string, string> = {};
-    for (const row of ready) urls[row.parsed!.filename] = URL.createObjectURL(row.file);
-    return urls;
-  }, [poolKey]);
-
-  // Object URLs live until the document is unloaded unless they are released.
-  useEffect(
-    () => () => Object.values(fileUrls).forEach(URL.revokeObjectURL),
-    [fileUrls],
-  );
-
-  async function run() {
-    if (!job) return;
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!file) {
+      setError("Attach your CV.");
+      return;
+    }
     setBusy(true);
     setError("");
-    setMatched({ done: 0, total: ready.length });
     try {
-      setResults(
-        await matchAll(
-          job,
-          ready.map((row) => ({
-            filename: row.parsed!.filename,
-            profile: row.parsed!.profile,
-          })),
-          (done, total) => setMatched({ done, total })
-        )
-      );
+      const fields = { full_name: fullName, email, phone };
+      const receipt = jobSlug
+        ? await submitApplication(jobSlug, fields, file)
+        : await submitOpenApplication(fields, file);
+      setSent(true);
+      // Stored and acknowledged already. Reading happens after, and the
+      // applicant never waits for it.
+      requestRead(receipt.id);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Matching failed.");
+      setError(e instanceof Error ? e.message : "Something went wrong. Try again.");
     }
     setBusy(false);
   }
 
-  return (
-    <div className="min-h-dvh">
-      <header className="page-header">
-        <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-6 py-3.5">
-          <AcudMark subtitle="Quick check" />
-          <div className="flex shrink-0 items-center gap-3">
-            {server && (
-              <div className="hidden text-right text-xs text-muted lg:block">
-                <div>
-                  CVs: <strong className="text-ink">{server.provider}</strong>
-                  {server.provider === "offline" && " (no key needed)"}
-                </div>
-                <div>
-                  Adverts:{" "}
-                  <strong className="text-ink">
-                    {server.can_read_jobs ? server.job_model : "unavailable"}
-                  </strong>
-                </div>
-              </div>
-            )}
-            <Link href="/admin" className="btn-primary text-sm">
-              Vacancies &amp; applicants →
-            </Link>
+  if (sent) {
+    return (
+      <Shell>
+        <div className="card animate-rise px-7 py-10 text-center">
+          <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-full bg-good-wash text-xl text-good">
+            ✓
           </div>
+          <h1 className="text-xl font-semibold">Application received</h1>
+          <p className="mt-2.5 text-[15px] leading-relaxed text-muted">
+            Thank you, {fullName.split(" ")[0] || "and good luck"}.{" "}
+            {chosen
+              ? `Your CV has reached the team hiring for ${chosen.title}.`
+              : "Your CV is with the team and will be kept on file."}{" "}
+            If it is a fit, somebody will be in touch on {email}.
+          </p>
+        </div>
+      </Shell>
+    );
+  }
+
+  return (
+    <Shell>
+      <div className="mb-8">
+        <p className="eyebrow">Careers</p>
+        <h1 className="display mt-2">Apply to join ACUD</h1>
+        <p className="mt-3 max-w-[52ch] text-[15px] leading-relaxed text-muted">
+          Choose the role you are applying for, or send your CV without one and
+          the hiring team will keep it on file.
+        </p>
+      </div>
+
+      <form onSubmit={submit} className="card animate-rise space-y-5 px-6 py-7">
+        <Field label="Which role?" required={false}>
+          <select
+            className="field"
+            value={jobSlug}
+            onChange={(e) => setJobSlug(e.target.value)}
+            disabled={jobs === null}
+          >
+            <option value="">
+              {jobs === null
+                ? "Loading roles…"
+                : jobs.length === 0
+                  ? "No roles are open — send your CV anyway"
+                  : "No particular role — keep my CV on file"}
+            </option>
+            {(jobs ?? []).map((job) => (
+              <option key={job.slug} value={job.slug}>
+                {job.title}
+              </option>
+            ))}
+          </select>
+          {chosen?.summary && (
+            <span className="mt-1.5 block text-xs leading-relaxed text-muted">
+              {chosen.summary}
+            </span>
+          )}
+        </Field>
+
+        <Field label="Your name" required>
+          <input
+            className="field"
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            required
+            autoComplete="name"
+          />
+        </Field>
+
+        <Field label="Email" required hint="Where the team will reply.">
+          <input
+            className="field"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            autoComplete="email"
+          />
+        </Field>
+
+        <Field label="Phone" hint="Optional.">
+          <input
+            className="field"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            autoComplete="tel"
+          />
+        </Field>
+
+        <Field label="Your CV" required>
+          <CvField file={file} onFile={setFile} />
+        </Field>
+
+        {error && <Note tone="bad">{error}</Note>}
+
+        <button className="btn-primary w-full py-3 text-[15px]" disabled={busy}>
+          {busy ? "Sending…" : "Send my application"}
+        </button>
+      </form>
+    </Shell>
+  );
+}
+
+function Shell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex min-h-dvh flex-col">
+      <header className="page-header">
+        <div className="mx-auto w-full max-w-2xl px-6 py-3.5">
+          <AcudMark subtitle="Careers" />
         </div>
       </header>
 
-      <main className="mx-auto max-w-4xl space-y-12 px-6 py-10">
-        <div className="card flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-          <p className="min-w-0 text-sm text-muted">
-            <strong className="text-ink">
-              This page screens CVs you already have.
-            </strong>{" "}
-            Nothing is saved — close the tab and it is gone. To publish a link
-            people apply through, and keep what arrives, open a vacancy instead.
-          </p>
-          <div className="flex shrink-0 gap-2">
-            <Link href="/admin" className="btn-ghost text-sm">
-              Vacancies
-            </Link>
-            <Link href="/workforce" className="btn-ghost text-sm">
-              Workforce planning
-            </Link>
-          </div>
-        </div>
-
-        <Step
-          index={1}
-          title="Add the CVs"
-          hint="Read once, here in your browser session. Nothing is stored on the server."
-          done={ready.length > 0}
-          active={ready.length === 0}
-        >
-          <Uploads rows={rows} setRows={setRows} provider={provider} />
-        </Step>
-
-        {ready.length > 0 && (
-          <Step
-            index={2}
-            title="What are you hiring for?"
-            hint="Paste the advert, or point at one CV and find people like them."
-            done={!!job}
-            active={!job}
-          >
-            <JobStep
-              job={job}
-              setJob={setJob}
-              provider={provider}
-              canReadJobs={server?.can_read_jobs ?? false}
-              jobModel={server?.job_model ?? null}
-            />
-          </Step>
-        )}
-
-        {job && ready.length > 0 && (
-          <Step
-            index={3}
-            title="The decision"
-            hint="Accepted at 80% and above, waiting list from 70%, rejected below that."
-            active={!results}
-            done={!!results}
-          >
-            <div className="space-y-4">
-              {!results && (
-                <div className="space-y-2">
-                  <button className="btn-primary" onClick={run} disabled={busy}>
-                    {busy
-                      ? matched.total > MATCH_BATCH
-                        ? `Matching ${matched.done} of ${matched.total}…`
-                        : "Matching…"
-                      : `Compare ${ready.length} CV${ready.length === 1 ? "" : "s"}`}
-                  </button>
-                  <p className="text-xs text-muted">
-                    Matching is pure computation — no model call.
-                    {ready.length > MATCH_BATCH &&
-                      ` Sent in batches of ${MATCH_BATCH}, because one request
-                        carrying every candidate would exceed what the server may
-                        return.`}
-                  </p>
-                </div>
-              )}
-              {error && <Note tone="bad">{error}</Note>}
-              {results && <Results data={results} fileUrls={fileUrls} />}
-            </div>
-          </Step>
-        )}
+      <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-10 sm:py-14">
+        {children}
       </main>
 
-      <footer className="mx-auto max-w-4xl border-t px-6 py-6 text-xs text-muted">
-        CVs are read one at a time and the results stay in this browser session.
-        Nothing is written to a server.
+      <footer className="mx-auto w-full max-w-2xl px-6 pb-10">
+        <p className="border-t pt-5 text-xs leading-relaxed text-muted">
+          Administrative Capital for Urban Development · العاصمة الإدارية
+          للتنمية العمرانية
+          <span className="mt-1 block">
+            Your details are used for hiring and nothing else, and only the
+            hiring team can open your CV.
+          </span>
+        </p>
       </footer>
     </div>
+  );
+}
+
+function Field({
+  label,
+  hint,
+  required,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  required?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-sm font-medium">
+        {label}
+        {required && <span className="text-bad"> *</span>}
+      </span>
+      {children}
+      {hint && <span className="mt-1 block text-xs text-muted">{hint}</span>}
+    </label>
   );
 }

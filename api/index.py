@@ -838,6 +838,24 @@ def set_posting_status(
     return _posting_out(posting, backend.applications(slug))
 
 
+@app.get("/api/public/postings", response_model=list[PublicPostingOut])
+def public_postings() -> list[PublicPostingOut]:
+    """The open jobs, for the application page's picker.
+
+    Titles and summaries only, and only jobs still open. The checklist stays
+    private for the same reason it does on a single job's page: publishing the
+    must-haves tells every applicant which words to paste into their CV.
+
+    The holding pen is left out - it is where a CV goes when no job was chosen,
+    not something to choose.
+    """
+    return [
+        PublicPostingOut(slug=p.slug, title=p.title, summary=p.summary, is_open=True)
+        for p in get_backend().postings()
+        if p.is_open and p.slug != postings.UNASSIGNED_SLUG
+    ]
+
+
 @app.get("/api/public/postings/{slug}", response_model=PublicPostingOut)
 def public_posting(slug: str) -> PublicPostingOut:
     """What the application page shows. Title and summary, never the criteria."""
