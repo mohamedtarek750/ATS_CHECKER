@@ -182,18 +182,12 @@ function PostingCard({
   onToggle: (p: Posting) => void;
   onDelete: (p: Posting) => Promise<void>;
 }) {
-  const [copied, setCopied] = useState(false);
   const [confirming, setConfirming] = useState(false);
   // Not a vacancy: it is where CVs sent without one are kept, and the API
   // refuses to delete it for the same reason.
   const isHoldingPen = posting.slug === "unassigned";
   const [deleting, setDeleting] = useState(false);
   const [failed, setFailed] = useState("");
-  const link =
-    typeof window === "undefined"
-      ? `/apply/${posting.slug}`
-      : `${window.location.origin}/apply/${posting.slug}`;
-
   return (
     <div className="card animate-rise px-4 py-3.5">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -243,19 +237,6 @@ function PostingCard({
       )}
 
       <div className="mt-2.5 flex flex-wrap items-center gap-2">
-        <code className="min-w-0 flex-1 truncate rounded bg-raised px-2 py-1 text-xs text-muted">
-          {link}
-        </code>
-        <button
-          className="btn-ghost text-sm"
-          onClick={() => {
-            navigator.clipboard?.writeText(link);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1600);
-          }}
-        >
-          {copied ? "Copied" : "Copy link"}
-        </button>
         <button className="btn-ghost text-sm" onClick={() => onToggle(posting)}>
           {posting.status === "open" ? "Close" : "Reopen"}
         </button>

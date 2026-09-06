@@ -13,7 +13,6 @@ import {
   DECISIONS,
   DECISION_TONE,
   SignedOutError,
-  cvObjectUrl,
   listApplications,
   readPending,
   saveDecision,
@@ -415,27 +414,7 @@ function Row({
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState(row.note);
   const [saving, setSaving] = useState(false);
-  const [opening, setOpening] = useState(false);
   const unread = row.status !== "read";
-
-  /**
-   * The CV endpoint needs the signed-in token, and a plain link cannot send
-   * one. Leaving it open instead would put a stranger's CV behind nothing but
-   * an unguessable id, so the bytes are fetched and handed to a blob URL.
-   */
-  async function openCv() {
-    setOpening(true);
-    try {
-      const url = await cvObjectUrl(row.id);
-      window.open(url, "_blank", "noopener");
-      // Released once the new tab has taken it. Revoking immediately would
-      // pull the document out from under the tab that is loading it.
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "The CV could not be opened.");
-    }
-    setOpening(false);
-  }
 
   async function change(decision: DecisionValue) {
     setSaving(true);
@@ -505,14 +484,19 @@ function Row({
           </span>
         )}
 
-        <button
-          onClick={openCv}
-          disabled={opening}
+        {/* A link, not a button. A control that has to fetch the file first
+            cannot open a tab with it: the click is over by the time the bytes
+            arrive, and the browser blocks the window it asks for without
+            saying so. The row already carries a signed link to its own CV. */}
+        <a
+          href={row.cv_href}
+          target="_blank"
+          rel="noopener noreferrer"
           className="chip mr-3 shrink-0 raised text-muted hover:text-ink"
           title={`Open ${row.cv_filename}`}
         >
-          {opening ? "Opening…" : "Open CV"}
-        </button>
+          Open CV
+        </a>
       </div>
 
       {open && (

@@ -209,6 +209,123 @@ def test_a_refused_request_hands_back_no_session_at_all():
             assert SESSION_HEADER not in response.headers, bad
 
 
+# -- links to a CV -----------------------------------------------------------
+def test_a_signed_link_opens_the_cv_it_was_issued_for():
+    """The reason this exists: an <a href> cannot carry a header.
+
+    A control that fetched the file first could not open a tab with it - the
+    click is over by the time the bytes arrive, and the browser blocks the
+    window without saying so.
+    """
+    with environment(**SIGNED_IN):
+        good = auth.sign_file_link("abc123")
+        assert auth.file_link_is_good("abc123", good)
+
+
+def test_a_link_cannot_be_edited_to_name_a_different_cv():
+    """The id is in plain sight in the URL. The signature is what stops it
+    being swapped for somebody else's."""
+    with environment(**SIGNED_IN):
+        good = auth.sign_file_link("abc123")
+        assert not auth.file_link_is_good("someone-else", good)
+
+        expires = good.split(".")[0]
+        for forged in (f"{expires}.0" * 16, f"{expires}.", "", "nonsense", "1.2.3"):
+            assert not auth.file_link_is_good("abc123", forged), forged
+
+
+def test_a_link_stops_working():
+    """One left in a browser history is a dead link tomorrow, not a way in."""
+    with environment(**SIGNED_IN):
+        link = auth.sign_file_link("abc123")
+        with clock(auth.FILE_LINK_MINUTES * 60 + 60):
+            assert not auth.file_link_is_good("abc123", link)
+
+
+def test_a_link_is_not_a_session_and_cannot_become_one():
+    """A session token in a URL ends up in history, in logs, and in whatever a
+    screen-share catches. This names one CV and nothing else."""
+    with environment(**SIGNED_IN):
+        link = auth.sign_file_link("abc123")
+        try:
+            auth.verify(link)
+        except auth.AuthError:
+            pass
+        else:
+            raise AssertionError("a file link was accepted as a sign-in")
+
+        # And the reverse: a session token is not a file link.
+        token = auth.sign_in("hr@company.com", "a-long-enough-password")
+        assert not auth.file_link_is_good("abc123", token)
+
+
+def test_changing_the_password_kills_every_outstanding_cv_link():
+    with environment(**SIGNED_IN):
+        link = auth.sign_file_link("abc123")
+    with environment(**{**SIGNED_IN, "ATS_ADMIN_PASSWORD": "a-different-password"}):
+        assert not auth.file_link_is_good("abc123", link)
+
+
+def test_the_cv_endpoint_takes_a_link_or_a_session_and_nothing_else():
+    """Both doors are the dashboard. Neither is optional - this serves a
+    stranger's personal document, and an unguessable id is not a permission."""
+    import json
+    import tempfile
+
+    from fastapi.testclient import TestClient
+
+    from api.index import app
+    from ats import backends
+    from ats.backends.local import LocalBackend
+    from ats.job_profile import JobProfile, Requirement
+
+    backends._backend = LocalBackend(Path(tempfile.mkdtemp()))
+    client = TestClient(app)
+    cv = (ROOT / "samples" / "01_data_analyst_omar.pdf").read_bytes()
+
+    job = JobProfile(
+        title="Data Analyst", seniority="Mid", summary="Owns reporting.",
+        min_years_experience=2,
+        requirements=[Requirement(text="SQL", kind="skill", importance="must_have")],
+    )
+
+    with environment(ATS_AUTH="off"):
+        slug = client.post(
+            "/api/postings", json={"job": json.loads(job.model_dump_json())}
+        ).json()["slug"]
+        receipt = client.post(
+            f"/api/public/postings/{slug}/apply",
+            data={"full_name": "Omar", "email": "o@e.com", "phone": ""},
+            files={"file": ("omar.pdf", cv, "application/pdf")},
+        ).json()
+
+        # The row hands out its own link, so the page never has to fetch first.
+        rows = client.get(f"/api/postings/{slug}/applications").json()["results"]
+        href = rows[0]["cv_href"]
+        assert href.startswith(f"/api/cv-file/{receipt['id']}?k=")
+
+        opened = client.get(href)
+        assert opened.status_code == 200
+        assert opened.content == cv
+        assert opened.headers["content-type"] == "application/pdf"
+
+    # With the sign-in on, the same link still works and a bare URL does not.
+    with environment(**SIGNED_IN):
+        assert client.get(f"/api/cv-file/{receipt['id']}").status_code == 401
+        assert client.get(f"/api/cv-file/{receipt['id']}?k=forged").status_code == 401
+
+        # A link signed under this configuration opens it without a header.
+        signed = auth.sign_file_link(receipt["id"])
+        assert client.get(f"/api/cv-file/{receipt['id']}?k={signed}").status_code == 200
+
+        # And a session in a header still works, as everywhere else.
+        token = auth.sign_in("hr@company.com", "a-long-enough-password")
+        assert client.get(
+            f"/api/cv-file/{receipt['id']}",
+            headers={"Authorization": f"Bearer {token}"},
+        ).status_code == 200
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):

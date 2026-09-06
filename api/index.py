@@ -609,6 +609,10 @@ class ApplicationOut(BaseModel):
     applied_at: str
     cv_filename: str
     cv_url: str
+    #: A signed, short-lived link to the CV. Present so the dashboard can put a
+    #: real <a href> on the page: a control that fetches first cannot open a
+    #: tab, because the click is over by the time the bytes arrive.
+    cv_href: str = ""
     status: str
     detail: str
     read_at: str
@@ -683,6 +687,7 @@ def _application_out(row) -> ApplicationOut:
         applied_at=row.applied_at,
         cv_filename=row.cv_filename,
         cv_url=row.cv_url,
+        cv_href=f"/api/cv-file/{row.id}?k={auth.sign_file_link(row.id)}",
         status=row.status,
         detail=row.detail,
         read_at=row.read_at,
@@ -1049,8 +1054,27 @@ def application_detail(
 
 
 @app.get("/api/cv-file/{application_id}")
-def cv_file(application_id: str, admin: auth.AdminUser = Depends(require_admin)):
-    """The CV as it was uploaded, so a recruiter can read the actual document."""
+def cv_file(
+    application_id: str,
+    k: str = "",
+    authorization: str | None = Header(default=None),
+):
+    """The CV as it was uploaded, so a recruiter can read the actual document.
+
+    Two ways in, and both are the dashboard. A session token in a header is
+    what the API uses everywhere else; a signed link in `k` is what makes this
+    one openable from an <a href>, which a header cannot be attached to.
+
+    Neither is optional. This serves a stranger's personal document, and an
+    unguessable id is not a permission - the previous version of this endpoint
+    would have been an open door had the guard ever been dropped by accident,
+    so the check happens here in one place and refuses by default.
+    """
+    if not (k and auth.file_link_is_good(application_id, k)):
+        # No valid link: fall back to the ordinary sign-in, which raises 401 or
+        # 503 for itself. Response() because require_admin renews sessions.
+        require_admin(Response(), authorization)
+
     backend = get_backend()
     row = backend.application(application_id)
     if row is None:

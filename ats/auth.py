@@ -156,6 +156,45 @@ def _read_token(token: str) -> AdminUser:
     return AdminUser(email=email, name=email.split("@")[0])
 
 
+#: How long a link to a CV stays good for. Long enough to open one and come
+#: back to it; short enough that one left in a browser history is dead.
+FILE_LINK_MINUTES = 30
+
+
+def sign_file_link(application_id: str) -> str:
+    """A signed permission to read one CV, for a while.
+
+    Not the session token. A session in a URL ends up in history, in logs and
+    in whatever a screen-share catches; this names one application, expires,
+    and is worth nothing tomorrow.
+    """
+    expires = int(time.time()) + FILE_LINK_MINUTES * 60
+    payload = f"cv|{application_id}|{expires}"
+    signature = hmac.new(
+        _signing_key(), payload.encode(), hashlib.sha256
+    ).hexdigest()[:32]
+    return f"{expires}.{signature}"
+
+
+def file_link_is_good(application_id: str, token: str) -> bool:
+    """Whether this link really was issued for this CV, and is still in date."""
+    try:
+        expires, signature = (token or "").split(".")
+        deadline = int(expires)
+    except (ValueError, AttributeError):
+        return False
+
+    payload = f"cv|{application_id}|{expires}"
+    expected = hmac.new(
+        _signing_key(), payload.encode(), hashlib.sha256
+    ).hexdigest()[:32]
+    # Constant time: the id is in the URL, so the signature is the only secret
+    # here, and a comparison that returns early gives it away a byte at a time.
+    if not hmac.compare_digest(signature, expected):
+        return False
+    return deadline >= time.time()
+
+
 def renewed_token(token: str) -> str:
     """A fresh token when this one is past halfway, or "" to leave it alone.
 

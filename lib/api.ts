@@ -393,6 +393,15 @@ export interface ApplicationRow {
   applied_at: string;
   cv_filename: string;
   cv_url: string;
+  /**
+   * A signed, short-lived link to this CV.
+   *
+   * It exists so the dashboard can put a real <a href> on the page. A control
+   * that fetches the file before opening it cannot open a tab at all: the
+   * click is over by the time the bytes arrive, and the browser blocks the
+   * window it asks for without saying anything.
+   */
+  cv_href: string;
   status: ApplicationStatus;
   detail: string;
   read_at: string;
@@ -546,26 +555,6 @@ export async function signIn(email: string, password: string): Promise<string> {
 
 export async function whoAmI(): Promise<AdminUser> {
   return unwrapAdmin<AdminUser>(await adminFetch("/api/auth/me"));
-}
-
-/**
- * The CV itself, fetched rather than linked.
- *
- * A plain <a href> cannot carry an Authorization header, so linking straight at
- * the endpoint would mean leaving it open - and it serves a stranger's CV. This
- * pulls the bytes with the token and hands back a blob URL, the same mechanism
- * the one-off screening page already uses for local files.
- */
-export async function cvObjectUrl(applicationId: string): Promise<string> {
-  const response = await adminFetch(`/api/cv-file/${applicationId}`);
-  if (!response.ok) {
-    if (response.status === 401) {
-      setAdminToken("");
-      throw new SignedOutError("Sign in to open the dashboard.");
-    }
-    throw new Error("The stored CV could not be opened.");
-  }
-  return URL.createObjectURL(await response.blob());
 }
 
 export async function listPostings(): Promise<Posting[]> {
