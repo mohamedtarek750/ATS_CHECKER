@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AcudMark } from "@/components/AcudMark";
+import { setAdminToken } from "@/lib/api";
 
 /**
  * One frame, one navigation, for everything behind the sign-in.
@@ -24,9 +25,8 @@ const PAGES = [
   { href: "/workforce", label: "Overview", exact: true },
   { href: "/workforce/roles", label: "Roles" },
 
-  // What is being done about it, and what needs attention today.
+  // What is being done about it.
   { href: "/admin", label: "Jobs and applicants", exact: true },
-  { href: "/admin/notifications", label: "Alerts" },
 
   // What if the assumptions change.
   { href: "/workforce/scenarios", label: "Scenarios" },
@@ -38,8 +38,12 @@ const PAGES = [
   { href: "/workforce/performance", label: "Performance" },
   { href: "/workforce/cost", label: "Hiring cost" },
 
-  // A tool rather than a view of the data. Last, deliberately.
+  // A tool rather than a view of the data.
   { href: "/admin/screen", label: "Quick check" },
+
+  // Last: it is not a page somebody works in, it is where they go when
+  // something is wrong and where they set who gets told about it.
+  { href: "/admin/notifications", label: "Alerts" },
 ];
 
 export function AppShell({
@@ -78,7 +82,10 @@ export function AppShell({
     <div className="min-h-dvh">
       <header className="page-header">
         <div className={`mx-auto ${width} px-6 py-3`}>
-          <AcudMark subtitle="Recruitment and workforce" />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <AcudMark subtitle="Recruitment and workforce" />
+            <SignOut />
+          </div>
 
           <nav className="mt-2.5 flex flex-wrap items-center gap-1">
             {PAGES.map(tab)}
@@ -100,6 +107,31 @@ export function AppShell({
 
       <DataFootnote path={path} />
     </div>
+  );
+}
+
+/**
+ * The way out.
+ *
+ * The session lives in this tab and nowhere else, so ending it is a matter of
+ * throwing the token away - and then a full page load rather than a router
+ * push, because every page behind the gate is holding applicant data in state
+ * and none of it should survive somebody leaving.
+ *
+ * It lands on the careers page, which is both the front door and the only
+ * thing a signed-out person is meant to see.
+ */
+function SignOut() {
+  return (
+    <button
+      className="btn-ghost shrink-0 text-sm"
+      onClick={() => {
+        setAdminToken("");
+        window.location.href = "/";
+      }}
+    >
+      Sign out
+    </button>
   );
 }
 

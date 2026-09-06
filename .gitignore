@@ -1,4 +1,8 @@
+# Every local environment file, not just the one called .env. NEXT_PUBLIC_
+# values end up in here, and one of them is somebody's mobile number.
 .env
+.env.local
+.env.*.local
 __pycache__/
 *.pyc
 data/inbox/*

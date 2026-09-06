@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { FinanceContact } from "@/components/FinanceContact";
 import { Note, Stat } from "@/components/Shell";
 import { WorkforceShell } from "@/components/WorkforceShell";
 import { COST_ROLES, DEFAULT_COST_PER_HIRE, type CostRole } from "@/lib/workforce";
@@ -71,6 +72,16 @@ export default function CostPage() {
           label="Positions to fill"
         />
       </div>
+
+      {/* Straight under the total, because the total is what it carries and
+          Finance is the only reader this page has who is not in HR. */}
+      <FinanceContact
+        total={grandTotal}
+        positions={COST_ROLES.reduce((n, r) => n + r.gap, 0)}
+        roles={COST_ROLES.length}
+        topDepartments={byDepartment}
+        rates={rates}
+      />
 
       <section>
         <h3 className="mb-2 text-sm font-medium">By department</h3>
