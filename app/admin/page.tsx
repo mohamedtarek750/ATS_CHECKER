@@ -1,22 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { AcudMark } from "@/components/AcudMark";
 import { useEffect, useState } from "react";
+import { AppShell } from "@/components/AppShell";
 import JobStep from "@/components/JobStep";
-import { Alerts } from "@/components/Alerts";
 import { Note } from "@/components/Shell";
-import { fetchAlerts, type Alert } from "@/lib/alerts";
 import {
   createPosting,
   deletePosting,
   health,
   listPostings,
-  mailStatus,
   setPostingStatus,
   type Health,
   type JobProfile,
-  type MailStatus,
   type Posting,
 } from "@/lib/api";
 
@@ -24,8 +20,6 @@ import {
 export default function AdminPage() {
   const [postings, setPostings] = useState<Posting[] | null>(null);
   const [server, setServer] = useState<Health | null>(null);
-  const [mail, setMail] = useState<MailStatus | null>(null);
-  const [alerts, setAlerts] = useState<Alert[]>([]);
   const [job, setJob] = useState<JobProfile | null>(null);
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -34,10 +28,6 @@ export default function AdminPage() {
   useEffect(() => {
     listPostings().then(setPostings).catch(() => setPostings([]));
     health().then(setServer).catch(() => setServer(null));
-    mailStatus().then(setMail).catch(() => setMail(null));
-    fetchAlerts()
-      .then((state) => setAlerts(state.alerts))
-      .catch(() => setAlerts([]));
   }, []);
 
   async function open() {
@@ -71,45 +61,16 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="min-h-dvh">
-      <header className="page-header">
-        <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-6 py-3.5">
-          <AcudMark subtitle="Jobs and applicants" />
-          <div className="flex shrink-0 gap-2">
-            {/* The other half of the same system: workforce planning says how
-                many people a role is short, this is where they arrive. */}
-            <Link href="/workforce" className="btn-ghost text-sm">
-              Planning
-            </Link>
-            <Link href="/admin/screen" className="btn-ghost text-sm">
-              Quick check
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-4xl space-y-6 px-6 py-8">
-        {/* Only when it is off. A banner saying email works would be on every
-            page load forever, and this one is here to be acted on. */}
-        {mail && !mail.configured && (
-          <Note>
-            <strong className="text-ink">
-              Applicants are not being sent a thank-you.
-            </strong>{" "}
-            Their CV still arrives and everything here still works — nobody is
-            told it was received. Set <code>RESEND_API_KEY</code> and{" "}
-            <code>ATS_MAIL_FROM</code> in the deployment&rsquo;s environment to
-            switch it on.
-          </Note>
-        )}
-
+    <AppShell
+      title="Jobs and applicants"
+      intro="Every vacancy, and how the people who applied to it were scored."
+    >
         {!creating && (
           <button className="btn-primary" onClick={() => setCreating(true)}>
             Add a job
           </button>
         )}
 
-        <Alerts alerts={alerts} href="/admin/notifications" />
 
         {creating && (
           <div className="card space-y-4 px-5 py-5">
@@ -168,8 +129,7 @@ export default function AdminPage() {
             />
           ))}
         </div>
-      </main>
-    </div>
+    </AppShell>
   );
 }
 

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Note, Stat } from "@/components/Shell";
-import { ForecastNote, WorkforceShell } from "@/components/WorkforceShell";
+import { WorkforceShell } from "@/components/WorkforceShell";
 import { TURNOVER } from "@/lib/workforce";
 
 const RISK_LABEL: Record<string, string> = {
@@ -36,27 +36,12 @@ export default function TurnoverPage() {
         row.department.toLowerCase().includes(needle))
   );
 
-  const smallest = TURNOVER.filter((r) => r.risk === "high" && r.current_employees <= 6);
 
   return (
     <WorkforceShell
       title="Turnover and retention risk"
       intro="People who left, over role headcount, for the latest period. A role losing people steadily is a retention problem whether or not the forecast has flagged it as short-staffed."
     >
-      {smallest.length > 0 && (
-        <Note tone="warn">
-          <strong className="text-ink">Read the small roles carefully.</strong>{" "}
-          {smallest.map((r) => r.role).join(", ")}{" "}
-          {smallest.length === 1 ? "has" : "have"} very few people in{" "}
-          {smallest.length === 1 ? "it" : "them"}, so one departure produces a
-          dramatic percentage. Talent Acquisition&rsquo;s 33% is one person out
-          of three — a real loss, but not the crisis the number implies on its
-          own.
-        </Note>
-      )}
-
-      <ForecastNote />
-
       <div className="grid grid-cols-3 gap-3">
         <Stat value={counts.high} label="High risk (15%+)" />
         <Stat value={counts.medium} label="Medium (8–15%)" tone="warn" />

@@ -42,17 +42,6 @@ export default function CompensationPage() {
       title="Compensation"
       intro="What each role is paid, and where the pay stops making sense next to itself."
     >
-      <Note tone="warn">
-        <strong className="text-ink">
-          These salaries are simulated. They are not ACUD&rsquo;s payroll.
-        </strong>{" "}
-        The workforce dataset behind this system carries no pay data at all, so
-        this page runs on a generated table with bands that follow seniority.
-        The analysis is real and the numbers are not — replace{" "}
-        <code>lib/pay.ts</code> with a payroll export of the same shape and
-        every figure here becomes true without another line changing.
-      </Note>
-
       {/* First, because it is the only part that is analysis rather than record. */}
       <Alerts alerts={findings} title="Pay equity" limit={4} />
 

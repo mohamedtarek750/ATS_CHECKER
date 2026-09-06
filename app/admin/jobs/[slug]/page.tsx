@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { use, useCallback, useEffect, useState } from "react";
 import { Alerts } from "@/components/Alerts";
+import { AppShell } from "@/components/AppShell";
 import { CandidateDetail } from "@/components/CandidateDetail";
 import { GrowthPlan } from "@/components/GrowthPlan";
 import { Note, Score, Stat } from "@/components/Shell";
@@ -629,23 +630,11 @@ function Frame({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-dvh">
-      <header className="page-header">
-        <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-6 py-3.5">
-          <div className="min-w-0">
-            <h1 className="truncate text-[15px] font-semibold tracking-tight">
-              {title ?? slug}
-            </h1>
-            <p className="truncate text-xs text-muted">
-              Accepted at 80% and above, waiting list from 70%, rejected below
-            </p>
-          </div>
-          <Link href="/admin" className="btn-ghost shrink-0 text-sm">
-            All vacancies
-          </Link>
-        </div>
-      </header>
-      <main className="mx-auto max-w-4xl space-y-5 px-6 py-8">{children}</main>
-    </div>
+    <AppShell
+      title={title ?? slug}
+      intro="Accepted at 80% and above, waiting list from 70%, rejected below."
+    >
+      {children}
+    </AppShell>
   );
 }

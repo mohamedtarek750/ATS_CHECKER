@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Note, Stat } from "@/components/Shell";
-import { WorkforceShell, ForecastNote } from "@/components/WorkforceShell";
+import { WorkforceShell } from "@/components/WorkforceShell";
 import { NEUTRAL, runScenario, type Levers } from "@/lib/scenarios";
 import { DEFAULT_COST_PER_HIRE, roleStates } from "@/lib/workforce";
 
@@ -69,11 +69,9 @@ export default function ScenariosPage() {
 
   return (
     <WorkforceShell
-      title="What if"
+      title="Scenarios"
       intro="Move a lever and every number below is recomputed. Nothing here is a prediction — it is arithmetic on the assumption you set, using the same forecast, turnover and cost figures as the rest of these pages."
     >
-      <ForecastNote />
-
       {/* The questions people actually ask, one press each. */}
       <div className="flex flex-wrap gap-2">
         {PRESETS.map((preset) => {

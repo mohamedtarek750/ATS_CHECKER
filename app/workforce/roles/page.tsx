@@ -3,7 +3,7 @@
 import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { ForecastNote, WorkforceShell } from "@/components/WorkforceShell";
+import { WorkforceShell } from "@/components/WorkforceShell";
 import { DEPARTMENTS, ROLES } from "@/lib/workforce";
 
 export default function RolesPage() {
@@ -34,8 +34,6 @@ function Roles() {
       title="Roles"
       intro="Every role the forecast covers, and how far short of demand it is. The gap is what the ATS next door is there to fill."
     >
-      <ForecastNote />
-
       <div className="flex flex-wrap items-center gap-2">
         <input
           className="field min-w-0 flex-1"

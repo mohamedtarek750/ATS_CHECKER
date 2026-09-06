@@ -43,16 +43,6 @@ export default function CostPage() {
       title="What filling the gap would cost"
       intro="Cost per hire multiplied by the number of positions each role is short."
     >
-      <Note tone="warn">
-        <strong className="text-ink">
-          These rates are placeholders, not ACUD&rsquo;s figures.
-        </strong>{" "}
-        The dataset carries no cost data at all, so the numbers below start from
-        illustrative rates by seniority. Put your real average cost per hire in
-        the four boxes and every total on this page recalculates — until you do,
-        treat the total as a shape, not a budget.
-      </Note>
-
       <div className="card flex flex-wrap items-end gap-3 px-4 py-3">
         {LEVELS.map((level) => (
           <label key={level} className="flex flex-col gap-1">

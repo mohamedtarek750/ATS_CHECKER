@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Note, Stat } from "@/components/Shell";
-import { ForecastNote, WorkforceShell } from "@/components/WorkforceShell";
+import { WorkforceShell } from "@/components/WorkforceShell";
 import { PERFORMANCE_TIERS } from "@/lib/workforce";
 
 const TIER_LABEL: Record<string, string> = {
@@ -41,15 +41,6 @@ export default function PerformancePage() {
       title="Performance and bonus eligibility"
       intro="Each role's average performance score, out of 5."
     >
-      <Note tone="warn">
-        <strong className="text-ink">These are roles, not people.</strong> The
-        dataset holds an average per role and does not identify anyone, so
-        nothing here can say how an individual is doing — and a role scoring
-        badly is a question about the role, not a verdict on whoever fills it.
-      </Note>
-
-      <ForecastNote />
-
       <div className="grid grid-cols-3 gap-3">
         <Stat value={counts.bonus} label="Bonus eligible" tone="good" />
         <Stat value={counts.normal} label="On track" tone="warn" />

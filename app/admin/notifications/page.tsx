@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { AcudMark } from "@/components/AcudMark";
+import { AppShell } from "@/components/AppShell";
 import { Alerts } from "@/components/Alerts";
 import { Note } from "@/components/Shell";
 import {
@@ -113,33 +112,10 @@ export default function NotificationsPage() {
   };
 
   return (
-    <div className="min-h-dvh">
-      <header className="page-header">
-        <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-6 py-3.5">
-          <AcudMark subtitle="Notifications" />
-          <div className="flex shrink-0 gap-2">
-            <Link href="/workforce" className="btn-ghost text-sm">
-              Planning
-            </Link>
-            <Link href="/admin" className="btn-ghost text-sm">
-              Jobs
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-4xl space-y-6 px-6 py-8">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">
-            Alerts, and who hears about them
-          </h1>
-          <p className="mt-1 max-w-[70ch] text-sm text-muted">
-            The same findings that appear on the dashboard, and the digest that
-            carries them by email. One message a day, and none at all on a day
-            when nothing is wrong.
-          </p>
-        </div>
-
+    <AppShell
+      title="Alerts"
+      intro="Where the workforce forecast and the live applications disagree, and the digest that carries them by email. One message a day, and none at all on a day when nothing is wrong."
+    >
         {error && <Note tone="bad">{error}</Note>}
 
         {/* -- who is being told ------------------------------------------- */}
@@ -382,8 +358,7 @@ export default function NotificationsPage() {
         {!state && !error && (
           <p className="text-sm text-muted">Loading…</p>
         )}
-      </main>
-    </div>
+    </AppShell>
   );
 }
 

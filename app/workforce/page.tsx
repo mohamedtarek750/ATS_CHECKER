@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Stat } from "@/components/Shell";
-import { ForecastNote, WorkforceShell } from "@/components/WorkforceShell";
+import { WorkforceShell } from "@/components/WorkforceShell";
 import {
   DEPARTMENTS,
   DEPARTMENT_PERFORMANCE,
@@ -26,8 +26,6 @@ export default function WorkforceOverview() {
       title={`${TOTALS.gap} more people are needed across the floor`}
       intro={`Forecast headcount for the coming quarter: ${TOTALS.predicted} positions against ${TOTALS.current} filled, across ${TOTALS.departments} departments and ${TOTALS.roles} roles. Open a department to see which of its roles the gap sits in.`}
     >
-      <ForecastNote />
-
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat value={TOTALS.current} label="Currently employed" />
         <Stat value={TOTALS.predicted} label="Forecast demand" tone="warn" />

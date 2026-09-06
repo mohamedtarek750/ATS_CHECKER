@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import JobStep from "@/components/JobStep";
 import Results from "@/components/Results";
-import { AcudMark } from "@/components/AcudMark";
+import { AppShell } from "@/components/AppShell";
 import { Note, Step } from "@/components/Shell";
 import Uploads, { type UploadRow } from "@/components/Uploads";
 import {
@@ -77,33 +77,23 @@ export default function Page() {
   }
 
   return (
-    <div className="min-h-dvh">
-      <header className="page-header">
-        <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-6 py-3.5">
-          <AcudMark subtitle="Quick check" />
-          <div className="flex shrink-0 items-center gap-3">
-            {server && (
-              <div className="hidden text-right text-xs text-muted lg:block">
-                <div>
-                  CVs: <strong className="text-ink">{server.provider}</strong>
-                  {server.provider === "offline" && " (no key needed)"}
-                </div>
-                <div>
-                  Adverts:{" "}
-                  <strong className="text-ink">
-                    {server.can_read_jobs ? server.job_model : "unavailable"}
-                  </strong>
-                </div>
-              </div>
-            )}
-            <Link href="/admin" className="btn-ghost text-sm">
-              Back to jobs
-            </Link>
-          </div>
-        </div>
-      </header>
+    <AppShell
+      title="Quick check"
+      intro="Score CVs you already have against an advert, without opening a vacancy. They are read here in your browser session and nothing is written to a server."
+    >
+      {/* Which model is answering. It was in the old header; here it is a line
+          under the title, still visible and no longer competing with the tabs. */}
+      {server && (
+        <p className="text-xs text-muted">
+          CVs read by <strong className="text-ink">{server.provider}</strong>
+          {server.provider === "offline" && " (no key needed)"} &middot; adverts by{" "}
+          <strong className="text-ink">
+            {server.can_read_jobs ? server.job_model : "unavailable"}
+          </strong>
+        </p>
+      )}
 
-      <main className="mx-auto max-w-4xl space-y-12 px-6 py-10">
+      <div className="space-y-12">
 
         <Step
           index={1}
@@ -165,12 +155,7 @@ export default function Page() {
             </div>
           </Step>
         )}
-      </main>
-
-      <footer className="mx-auto max-w-4xl border-t px-6 py-6 text-xs text-muted">
-        CVs are read one at a time and the results stay in this browser session.
-        Nothing is written to a server.
-      </footer>
-    </div>
+      </div>
+    </AppShell>
   );
 }
