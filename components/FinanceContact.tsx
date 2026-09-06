@@ -18,19 +18,30 @@
  * moment somebody edits the rates above, and a figure that changes on its own
  * should not leave the building on its own either.
  *
- * THE NUMBER IS NOT IN THIS FILE
- * ------------------------------
- * It is a real person's mobile and this repository is public. It comes from
- * NEXT_PUBLIC_FINANCE_PHONE, and with that unset the card says so rather than
- * quietly disappearing - a contact panel that vanishes when misconfigured
- * looks exactly like one that was never asked for.
+ * ONE LINK IS ONE CHAT
+ * --------------------
+ * A wa.me link opens a single conversation - WhatsApp has no format for
+ * addressing two people at once, and there is no arrangement of this code that
+ * changes that. So more than one number means one button each, carrying the
+ * identical message. Two presses instead of one, which is the honest cost of
+ * not having a WhatsApp Business account behind this.
+ *
+ * THE NUMBERS ARE NOT IN THIS FILE
+ * --------------------------------
+ * They are real people's mobiles and this repository is public. They come from
+ * NEXT_PUBLIC_FINANCE_PHONE, comma-separated the way every other list of
+ * recipients in this system is - and with it unset the card says so rather
+ * than quietly disappearing, because a contact panel that vanishes when
+ * misconfigured looks exactly like one nobody asked for.
  */
 
-const PHONE = process.env.NEXT_PUBLIC_FINANCE_PHONE ?? "";
 const NAME = process.env.NEXT_PUBLIC_FINANCE_NAME || "Finance";
 
 /** Digits only, which is what wa.me and tel: both want. */
-const digits = PHONE.replace(/[^\d]/g, "");
+const CONTACTS = (process.env.NEXT_PUBLIC_FINANCE_PHONE ?? "")
+  .split(",")
+  .map((one) => ({ shown: one.trim(), digits: one.replace(/[^\d]/g, "") }))
+  .filter((one) => one.digits.length >= 8);
 
 export function FinanceContact({
   total,
@@ -66,15 +77,16 @@ export function FinanceContact({
       " per hire.",
   ].join("\n");
 
-  if (!digits) {
+  if (CONTACTS.length === 0) {
     return (
       <div className="card px-5 py-4">
         <h3 className="text-sm font-medium">Send this to Finance</h3>
         <p className="mt-1.5 text-sm leading-relaxed text-muted">
           Set <code>NEXT_PUBLIC_FINANCE_PHONE</code> in the deployment&rsquo;s
           environment — with the country code, like{" "}
-          <code>+20 10 XXXXXXXX</code> — and this becomes a button that opens
-          WhatsApp with the figures below already written.
+          <code>+20 10 XXXXXXXX</code>, and separated by commas for more than
+          one — and this becomes a button per number that opens WhatsApp with
+          the figures below already written.
         </p>
       </div>
     );
@@ -82,32 +94,43 @@ export function FinanceContact({
 
   return (
     <div className="card px-5 py-4">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <h3 className="text-sm font-medium">Send this to {NAME}</h3>
-        <span className="text-xs tabular-nums text-muted">{PHONE}</span>
-      </div>
+      <h3 className="text-sm font-medium">Send this to {NAME}</h3>
 
       <p className="mt-1.5 text-sm leading-relaxed text-muted">
         The total above, the positions behind it, and the three departments
         carrying most of it — written out and addressed to {NAME}. It follows
         whatever rates are in the boxes, so correct them first and the message
         corrects itself.
+        {CONTACTS.length > 1 && (
+          <>
+            {" "}
+            A WhatsApp link opens one conversation, so each number is its own
+            button carrying the same message.
+          </>
+        )}
       </p>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        {/* A link, not a script. A control that builds a URL and then opens it
-            after any wait is a control the browser blocks without saying so. */}
-        <a
-          href={`https://wa.me/${digits}?text=${encodeURIComponent(message)}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="btn-primary text-sm"
-        >
-          Open in WhatsApp
-        </a>
-        <a href={`tel:+${digits}`} className="btn-ghost text-sm">
-          Call instead
-        </a>
+      <div className="mt-3 space-y-2">
+        {CONTACTS.map((contact) => (
+          <div key={contact.digits} className="flex flex-wrap items-center gap-2">
+            {/* A link, not a script. A control that builds a URL and then opens
+                it after any wait is one the browser blocks without saying so. */}
+            <a
+              href={`https://wa.me/${contact.digits}?text=${encodeURIComponent(message)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-primary text-sm"
+            >
+              WhatsApp
+            </a>
+            <a href={`tel:+${contact.digits}`} className="btn-ghost text-sm">
+              Call
+            </a>
+            <span className="text-xs tabular-nums text-muted">
+              {contact.shown}
+            </span>
+          </div>
+        ))}
       </div>
 
       <details className="mt-3">
