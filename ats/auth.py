@@ -34,8 +34,14 @@ _ISSUERS = {"accounts.google.com", "https://accounts.google.com"}
 #: audit trail says "unauthenticated" rather than inventing a person.
 DEVELOPMENT_USER_EMAIL = "auth-disabled@localhost"
 
-#: How long a password sign-in lasts before it has to be done again.
+#: How long a password sign-in lasts before it has to be done again. Counted
+#: from the last request, not from signing in - see renewed_token.
 SESSION_HOURS = 12
+
+#: How much of a session has to be spent before it is worth renewing. Renewing
+#: on every request would mint a token per keystroke; renewing at the very end
+#: would miss anybody whose last action fell after it.
+RENEW_AFTER = 0.5
 
 #: Marks a token this system issued, so it is never sent to Google to verify.
 _TOKEN_PREFIX = "ats1."
@@ -148,6 +154,33 @@ def _read_token(token: str) -> AdminUser:
         raise AuthError(f"{email} is no longer on the list for this dashboard.")
 
     return AdminUser(email=email, name=email.split("@")[0])
+
+
+def renewed_token(token: str) -> str:
+    """A fresh token when this one is past halfway, or "" to leave it alone.
+
+    This is what stops a session expiring under somebody who is using it. The
+    twelve hours run from the last request rather than from the sign-in, so
+    working through the afternoon keeps you signed in and walking away for the
+    night does not.
+
+    Only password sessions. A Google token is Google's to renew, and this has
+    no business minting one.
+    """
+    if not token.startswith(_TOKEN_PREFIX):
+        return ""
+
+    body = token[len(_TOKEN_PREFIX):]
+    try:
+        raw = base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)).decode()
+        email, expires, _signature = raw.split("|")
+        left = int(expires) - time.time()
+    except Exception:  # noqa: BLE001 - a token that will be refused anyway
+        return ""
+
+    if left <= 0 or left > SESSION_HOURS * 3600 * (1 - RENEW_AFTER):
+        return ""
+    return issue_token(email)
 
 
 def sign_in(email: str, password: str) -> str:

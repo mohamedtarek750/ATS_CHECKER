@@ -9,6 +9,7 @@ import {
   setAdminToken,
   signIn,
   whoAmI,
+  SIGNED_OUT_EVENT,
   type AdminUser,
   type AuthStatus,
 } from "@/lib/api";
@@ -51,6 +52,20 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     check();
   }, [check]);
+
+  // A session can end while somebody is looking at the page - twelve hours
+  // from their last request, so realistically a tab left open overnight. The
+  // browser throws the dead token away the moment a call comes back 401; this
+  // is how the page finds out, instead of going on showing a dashboard where
+  // every button quietly fails.
+  useEffect(() => {
+    function signedOut() {
+      setUser(null);
+      setError("That sign-in has expired. Sign in again to carry on.");
+    }
+    window.addEventListener(SIGNED_OUT_EVENT, signedOut);
+    return () => window.removeEventListener(SIGNED_OUT_EVENT, signedOut);
+  }, []);
 
   async function onCredential(token: string) {
     setAdminToken(token);

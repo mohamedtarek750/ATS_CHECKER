@@ -748,22 +748,40 @@ class LoginOut(BaseModel):
     email: str
 
 
-def require_admin(authorization: str | None = Header(default=None)) -> auth.AdminUser:
+#: Carries a renewed session back to the browser. A header rather than a body
+#: field so that every admin route gets it without any of them knowing.
+SESSION_HEADER = "X-ATS-Session"
+
+
+def require_admin(
+    response: Response, authorization: str | None = Header(default=None)
+) -> auth.AdminUser:
     """The signed-in person, or a refusal.
 
     A missing configuration is 503 rather than 401 on purpose: it is a
     deployment that was never finished, not somebody failing to log in, and
     telling them to "sign in" would send them round a loop with no way out.
+
+    A session past halfway is renewed here, so the twelve hours run from the
+    last request rather than from the sign-in. Somebody working through the
+    day is never signed out mid-action; somebody who left a tab open overnight
+    still is.
     """
     token = ""
     if authorization and authorization.lower().startswith("bearer "):
         token = authorization[7:].strip()
     try:
-        return auth.verify(token)
+        admin = auth.verify(token)
     except auth.AuthNotConfigured as exc:
         raise HTTPException(503, str(exc)) from exc
     except auth.AuthError as exc:
         raise HTTPException(401, str(exc)) from exc
+
+    fresh = auth.renewed_token(token)
+    if fresh:
+        response.headers[SESSION_HEADER] = fresh
+        response.headers["Access-Control-Expose-Headers"] = SESSION_HEADER
+    return admin
 
 
 @app.get("/api/auth/status", response_model=AuthStatusOut)

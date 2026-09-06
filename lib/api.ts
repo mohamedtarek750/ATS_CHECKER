@@ -468,6 +468,18 @@ export function setAdminToken(token: string): void {
 /** Raised when the API says the token is missing or expired. */
 export class SignedOutError extends Error {}
 
+/**
+ * Fired when a request comes back 401 and the dead token has been thrown away.
+ *
+ * Without it the browser knows the session is over and the page does not: it
+ * goes on showing a dashboard, and the only sign is a red box beside a button
+ * that cannot work. AdminGate listens and puts the sign-in screen back.
+ */
+export const SIGNED_OUT_EVENT = "ats:signed-out";
+
+/** The server renews a session past halfway. Keeping it is what makes it slide. */
+const SESSION_HEADER = "X-ATS-Session";
+
 /** A fetch that carries the signed-in identity. Admin routes only. */
 export async function adminFetch(url: string, init: RequestInit = {}): Promise<Response> {
   const token = adminToken();
@@ -477,10 +489,17 @@ export async function adminFetch(url: string, init: RequestInit = {}): Promise<R
 }
 
 export async function unwrapAdmin<T>(response: Response): Promise<T> {
+  // A session past halfway comes back renewed. Nothing else has to know.
+  const renewed = response.headers.get(SESSION_HEADER);
+  if (renewed) setAdminToken(renewed);
+
   if (response.status === 401) {
     // The token has expired or was never any good. Drop it so the page shows
     // the sign-in button instead of failing every call from now on.
     setAdminToken("");
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event(SIGNED_OUT_EVENT));
+    }
     let message = "Sign in to open the dashboard.";
     try {
       const body = await response.json();
