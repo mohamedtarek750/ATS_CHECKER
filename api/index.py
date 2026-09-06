@@ -856,6 +856,88 @@ def create_posting(
     return _posting_out(backend.save_posting(posting), [])
 
 
+class MovedOut(BaseModel):
+    """One person whose standing changed because the advert did."""
+
+    id: str
+    full_name: str
+    from_tier: str
+    to_tier: str
+    from_percent: int
+    to_percent: int
+
+
+class EditedPosting(BaseModel):
+    posting: PostingOut
+    #: How many applications were measured against the new checklist.
+    rescored: int
+    #: Read before profiles were kept, so they could not be re-scored. Left
+    #: exactly as they were rather than silently zeroed.
+    unreadable: int
+    moved: list[MovedOut]
+
+
+@app.put("/api/postings/{slug}", response_model=EditedPosting)
+def edit_posting(
+    slug: str, body: NewPosting, admin: auth.AdminUser = Depends(require_admin)
+) -> EditedPosting:
+    """Change what a vacancy asks for, and re-measure everybody against it.
+
+    THE RE-SCORING IS NOT OPTIONAL AND IS NOT A SEPARATE BUTTON.
+
+    Editing the requirements changes the yardstick every applicant was measured
+    against. Saving the new checklist and leaving the old percentages in place
+    would put a 42% computed against one list beside an 80% computed against
+    another, on the same screen, with nothing saying they are not comparable -
+    and a recruiter would rank people by it. So it happens here, in the same
+    request, and the response says who moved.
+
+    It is affordable because no CV is read again: stage 2 wrote each parsed
+    profile to storage when the application arrived, and matching is arithmetic
+    over that.
+
+    The slug does not change. It is in every link already handed to a
+    candidate, and a job that renames its own URL is a job whose adverts stop
+    working.
+    """
+    if not body.job.requirements:
+        raise HTTPException(
+            400,
+            "A vacancy with no requirements measures nobody. Read an advert "
+            "first, or close this one instead.",
+        )
+
+    backend = get_backend()
+    posting = _require_posting(slug)
+    if slug == postings.UNASSIGNED_SLUG:
+        raise HTTPException(
+            400,
+            "That is where CVs sent without a job are kept, not a vacancy. "
+            "Assign them to a real one instead.",
+        )
+
+    posting.title = body.job.title
+    posting.summary = body.job.summary
+    posting.profile = body.job
+    backend.save_posting(posting)
+
+    changed = intake.rescore(backend, posting)
+    return EditedPosting(
+        posting=_posting_out(posting, backend.applications(slug)),
+        rescored=changed["rescored"],
+        unreadable=changed["unreadable"],
+        moved=[MovedOut(**one) for one in changed["moved"]],
+    )
+
+
+@app.get("/api/postings/{slug}/job", response_model=JobProfile)
+def read_posting_job(
+    slug: str, admin: auth.AdminUser = Depends(require_admin)
+) -> JobProfile:
+    """The frozen checklist, so the editor opens on what is actually there."""
+    return _require_posting(slug).profile
+
+
 @app.post("/api/postings/{slug}/status", response_model=PostingOut)
 def set_posting_status(
     slug: str, status: str, admin: auth.AdminUser = Depends(require_admin)

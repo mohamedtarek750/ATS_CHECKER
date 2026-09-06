@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import JobStep from "@/components/JobStep";
+import { EditJob } from "@/components/EditJob";
 import { Note } from "@/components/Shell";
 import {
   createPosting,
@@ -124,8 +125,16 @@ export default function AdminPage() {
             <PostingCard
               key={posting.slug}
               posting={posting}
+              server={server}
               onToggle={toggle}
               onDelete={remove}
+              onEdited={(updated) =>
+                setPostings((current) =>
+                  (current ?? []).map((p) =>
+                    p.slug === updated.slug ? updated : p
+                  )
+                )
+              }
             />
           ))}
         </div>
@@ -135,14 +144,19 @@ export default function AdminPage() {
 
 function PostingCard({
   posting,
+  server,
   onToggle,
   onDelete,
+  onEdited,
 }: {
   posting: Posting;
+  server: Health | null;
   onToggle: (p: Posting) => void;
   onDelete: (p: Posting) => Promise<void>;
+  onEdited: (p: Posting) => void;
 }) {
   const [confirming, setConfirming] = useState(false);
+  const [editing, setEditing] = useState(false);
   // Not a vacancy: it is where CVs sent without one are kept, and the API
   // refuses to delete it for the same reason.
   const isHoldingPen = posting.slug === "unassigned";
@@ -205,6 +219,14 @@ function PostingCard({
         </Link>
         {!isHoldingPen && (
           <button
+            className="btn-ghost text-sm"
+            onClick={() => setEditing(!editing)}
+          >
+            {editing ? "Close" : "Edit"}
+          </button>
+        )}
+        {!isHoldingPen && (
+          <button
             className="btn-ghost text-sm text-bad"
             onClick={() => setConfirming(true)}
           >
@@ -212,6 +234,15 @@ function PostingCard({
           </button>
         )}
       </div>
+
+      {editing && (
+        <EditJob
+          posting={posting}
+          server={server}
+          onSaved={onEdited}
+          onClose={() => setEditing(false)}
+        />
+      )}
 
       {/* Asked here rather than in a window.confirm, so the count is on the
           screen next to the button that acts on it. A job with people in it is

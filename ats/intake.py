@@ -170,3 +170,82 @@ def detail_for(
     entry = rank.rank([result])[0]
     report = template.evaluate(profile, blueprint_for(posting.profile), result)
     return (profile, entry, report)
+
+
+def rescore(backend, posting: JobPosting) -> dict:
+    """Score every read application on this vacancy again, and say what moved.
+
+    THE REASON THIS EXISTS
+    ----------------------
+    Editing a vacancy's requirements changes the yardstick everybody was
+    measured against. Leaving the old percentages in place would put a 42%
+    computed against one checklist beside an 80% computed against another, on
+    the same screen, with nothing to say they are not comparable - and a
+    recruiter would rank people by it.
+
+    IT COSTS NOTHING
+    ----------------
+    No CV is read again. Stage 2 wrote the parsed profile to storage when the
+    application arrived, and matching is arithmetic over that - so this is a
+    loop over rows, not a queue of model calls. That is what makes re-scoring
+    on every edit affordable enough to be automatic rather than a button
+    somebody has to remember.
+
+    Returns what changed, because "12 applications were re-scored" is a fact
+    about the system and "one person moved out of the shortlist" is a fact
+    about a person, and only the second is worth a recruiter's attention.
+    """
+    moved: list[dict] = []
+    rescored = 0
+    unreadable = 0
+
+    for application in backend.applications(posting.slug):
+        if application.status != "read":
+            continue
+
+        profile = backend.profile(application.id)
+        if profile is None:
+            # Read before profiles were kept, or the file went missing. Left
+            # exactly as it is rather than silently zeroed.
+            unreadable += 1
+            continue
+
+        was_tier = application.tier
+        was_percent = application.percent
+
+        if not posting.profile.requirements:
+            application.tier = "unscored"
+            application.percent = 0
+            application.required_percent = 0
+            application.preferred_percent = 0
+            application.reason = (
+                "Not scored: this vacancy has no requirements to measure "
+                "against."
+            )
+        else:
+            entry = rank.rank(
+                [match_stage.match(profile, posting.profile, application.cv_filename)]
+            )[0]
+            application.percent = entry.percent
+            application.required_percent = entry.required_percent
+            application.preferred_percent = entry.preferred_percent
+            application.tier = entry.tier
+            application.reason = entry.reason
+
+        application.engine_version = ENGINE_VERSION
+        backend.update_application(application)
+        rescored += 1
+
+        if application.tier != was_tier:
+            moved.append(
+                {
+                    "id": application.id,
+                    "full_name": application.full_name,
+                    "from_tier": was_tier,
+                    "to_tier": application.tier,
+                    "from_percent": was_percent,
+                    "to_percent": application.percent,
+                }
+            )
+
+    return {"rescored": rescored, "unreadable": unreadable, "moved": moved}

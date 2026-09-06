@@ -633,6 +633,50 @@ export async function createPosting(job: JobProfile): Promise<Posting> {
   );
 }
 
+export interface Moved {
+  id: string;
+  full_name: string;
+  from_tier: string;
+  to_tier: string;
+  from_percent: number;
+  to_percent: number;
+}
+
+export interface EditedPosting {
+  posting: Posting;
+  /** How many applications were measured against the new checklist. */
+  rescored: number;
+  /** Read before profiles were kept, so left exactly as they were. */
+  unreadable: number;
+  moved: Moved[];
+}
+
+/** The checklist as it stands, so the editor opens on what is actually there. */
+export async function postingJob(slug: string): Promise<JobProfile> {
+  return unwrapAdmin<JobProfile>(await adminFetch(`/api/postings/${slug}/job`));
+}
+
+/**
+ * Change what a vacancy asks for.
+ *
+ * The server re-scores every applicant in the same request, and says who
+ * moved. It is not a separate step and there is no way to skip it: leaving old
+ * percentages beside a new checklist would put two numbers that mean different
+ * things on one screen, and somebody would rank people by them.
+ */
+export async function editPosting(
+  slug: string,
+  job: JobProfile
+): Promise<EditedPosting> {
+  return unwrapAdmin<EditedPosting>(
+    await adminFetch(`/api/postings/${slug}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ job }),
+    })
+  );
+}
+
 export async function setPostingStatus(
   slug: string,
   status: "open" | "closed"

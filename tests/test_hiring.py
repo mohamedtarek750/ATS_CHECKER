@@ -382,6 +382,8 @@ GUARDED = [
     ("GET", "/api/postings"),
     ("POST", "/api/postings"),
     ("POST", "/api/postings/data-analyst/status"),
+    ("PUT", "/api/postings/data-analyst"),
+    ("GET", "/api/postings/data-analyst/job"),
     ("DELETE", "/api/postings/data-analyst"),
     ("GET", "/api/postings/data-analyst/applications"),
     ("POST", "/api/postings/data-analyst/read"),
@@ -1066,6 +1068,201 @@ def test_deleting_a_job_that_is_not_there_says_so():
     client = admin_client()
     with environment(ATS_AUTH="off"):
         assert client.delete("/api/postings/never-existed").status_code == 404
+
+
+def test_editing_a_vacancy_rescores_everybody_on_it():
+    """The property the whole feature turns on.
+
+    Editing the requirements changes the yardstick every applicant was measured
+    against. Saving a new checklist and leaving the old percentages in place
+    would put two numbers that mean different things on one screen, and a
+    recruiter would rank people by them.
+    """
+    client = admin_client()
+    with environment(ATS_AUTH="off"):
+        cv = (ROOT / "samples" / "01_data_analyst_omar.pdf").read_bytes()
+
+        easy = make_job()
+        easy.requirements = [
+            Requirement(text="Strong SQL", kind="skill", importance="must_have"),
+        ]
+        slug = client.post(
+            "/api/postings", json={"job": json.loads(easy.model_dump_json())}
+        ).json()["slug"]
+
+        receipt = client.post(
+            f"/api/public/postings/{slug}/apply",
+            data={"full_name": "Omar", "email": "o@e.com", "phone": ""},
+            files={"file": ("omar.pdf", cv, "application/pdf")},
+        ).json()
+        client.post(f"/api/public/applications/{receipt['id']}/read")
+
+        before = client.get(f"/api/postings/{slug}/applications").json()["results"][0]
+        assert before["tier"] == "accepted", before["percent"]
+
+        # Now ask for things this CV does not have.
+        hard = make_job()
+        hard.requirements = [
+            Requirement(text="Strong SQL", kind="skill", importance="must_have"),
+            Requirement(text="Kubernetes", kind="skill", importance="must_have"),
+            Requirement(text="Rust", kind="skill", importance="must_have"),
+            Requirement(text="Terraform", kind="skill", importance="must_have"),
+        ]
+        edited = client.put(
+            f"/api/postings/{slug}", json={"job": json.loads(hard.model_dump_json())}
+        )
+        assert edited.status_code == 200, edited.text
+        body = edited.json()
+
+        assert body["rescored"] == 1
+        assert len(body["moved"]) == 1
+        assert body["moved"][0]["full_name"] == "Omar"
+        assert body["moved"][0]["from_tier"] == "accepted"
+        assert body["moved"][0]["to_tier"] == "rejected"
+
+        # And the stored row really changed, not just the response.
+        after = client.get(f"/api/postings/{slug}/applications").json()["results"][0]
+        assert after["tier"] == "rejected"
+        assert after["percent"] < before["percent"]
+
+
+def test_an_edit_that_changes_nothing_moves_nobody():
+    """Correcting a typo in the summary should not reshuffle the shortlist."""
+    client = admin_client()
+    with environment(ATS_AUTH="off"):
+        cv = (ROOT / "samples" / "01_data_analyst_omar.pdf").read_bytes()
+        job = make_job()
+        slug = client.post(
+            "/api/postings", json={"job": json.loads(job.model_dump_json())}
+        ).json()["slug"]
+        receipt = client.post(
+            f"/api/public/postings/{slug}/apply",
+            data={"full_name": "Omar", "email": "o@e.com", "phone": ""},
+            files={"file": ("omar.pdf", cv, "application/pdf")},
+        ).json()
+        client.post(f"/api/public/applications/{receipt['id']}/read")
+        before = client.get(f"/api/postings/{slug}/applications").json()["results"][0]
+
+        job.summary = "Owns commercial reporting, and the dashboards behind it."
+        body = client.put(
+            f"/api/postings/{slug}", json={"job": json.loads(job.model_dump_json())}
+        ).json()
+
+        assert body["rescored"] == 1
+        assert body["moved"] == []
+        after = client.get(f"/api/postings/{slug}/applications").json()["results"][0]
+        assert after["percent"] == before["percent"]
+        assert body["posting"]["summary"].endswith("dashboards behind it.")
+
+
+def test_the_editor_opens_on_the_checklist_that_is_actually_frozen_on():
+    """Making somebody paste the whole advert again to fix one line is how the
+    wrong checklist stays in place."""
+    client = admin_client()
+    with environment(ATS_AUTH="off"):
+        job = make_job()
+        slug = client.post(
+            "/api/postings", json={"job": json.loads(job.model_dump_json())}
+        ).json()["slug"]
+
+        stored = client.get(f"/api/postings/{slug}/job")
+        assert stored.status_code == 200
+        assert [r["text"] for r in stored.json()["requirements"]] == [
+            r.text for r in job.requirements
+        ]
+
+
+def test_the_link_a_candidate_already_has_survives_an_edit():
+    """A job that renames its own URL is a job whose adverts stop working."""
+    client = admin_client()
+    with environment(ATS_AUTH="off"):
+        job = make_job()
+        slug = client.post(
+            "/api/postings", json={"job": json.loads(job.model_dump_json())}
+        ).json()["slug"]
+
+        job.title = "Senior Commercial Data Analyst"
+        body = client.put(
+            f"/api/postings/{slug}", json={"job": json.loads(job.model_dump_json())}
+        ).json()
+
+        assert body["posting"]["slug"] == slug
+        assert body["posting"]["title"] == "Senior Commercial Data Analyst"
+        assert client.get(f"/api/public/postings/{slug}").status_code == 200
+
+
+def test_a_vacancy_cannot_be_edited_into_measuring_nobody():
+    client = admin_client()
+    with environment(ATS_AUTH="off"):
+        job = make_job()
+        slug = client.post(
+            "/api/postings", json={"job": json.loads(job.model_dump_json())}
+        ).json()["slug"]
+
+        empty = make_job()
+        empty.requirements = []
+        refused = client.put(
+            f"/api/postings/{slug}", json={"job": json.loads(empty.model_dump_json())}
+        )
+        assert refused.status_code == 400
+        assert "measures nobody" in refused.json()["detail"]
+
+        # Refused means nothing happened.
+        assert len(client.get(f"/api/postings/{slug}/job").json()["requirements"]) > 0
+
+
+def test_the_holding_pen_cannot_be_given_requirements():
+    """It exists precisely because those CVs have nothing to be measured
+    against. Giving it a checklist would score people nobody applied with."""
+    client = admin_client()
+    with environment(ATS_AUTH="off"):
+        cv = (ROOT / "samples" / "01_data_analyst_omar.pdf").read_bytes()
+        client.post(
+            "/api/public/apply",
+            data={"full_name": "Nadia", "email": "n@e.com", "phone": ""},
+            files={"file": ("nadia.pdf", cv, "application/pdf")},
+        )
+
+        refused = client.put(
+            f"/api/postings/{postings.UNASSIGNED_SLUG}",
+            json={"job": json.loads(make_job().model_dump_json())},
+        )
+        assert refused.status_code == 400
+
+
+def test_rescoring_reads_no_cv_a_second_time():
+    """What makes it affordable enough to be automatic.
+
+    Stage 2 wrote the parsed profile to storage when the application arrived,
+    and matching is arithmetic over that - so an edit is a loop over rows, not
+    a queue of model calls.
+    """
+    backend, posting, tmp = fresh()
+    try:
+        application = apply(backend, posting)
+        intake.read(backend, posting, application)
+
+        opened = []
+        original = Path.read_bytes
+
+        def watched(self, *a, **k):
+            if self.suffix.lower() in {".pdf", ".docx", ".txt", ".md", ".rtf"}:
+                opened.append(self.name)
+            return original(self, *a, **k)
+
+        Path.read_bytes = watched
+        try:
+            posting.profile.requirements.append(
+                Requirement(text="Kubernetes", kind="skill", importance="must_have")
+            )
+            changed = intake.rescore(backend, posting)
+        finally:
+            Path.read_bytes = original
+
+        assert changed["rescored"] == 1
+        assert opened == [], f"a CV was read again: {opened}"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":
