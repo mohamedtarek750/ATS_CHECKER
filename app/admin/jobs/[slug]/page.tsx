@@ -4,6 +4,7 @@ import Link from "next/link";
 import { use, useCallback, useEffect, useState } from "react";
 import { Alerts } from "@/components/Alerts";
 import { CandidateDetail } from "@/components/CandidateDetail";
+import { GrowthPlan } from "@/components/GrowthPlan";
 import { Note, Score, Stat } from "@/components/Shell";
 import { StatsPanel } from "@/components/StatsPanel";
 import { assignToVacancy, listPostings, UNASSIGNED_SLUG, type Posting } from "@/lib/api";
@@ -599,6 +600,13 @@ function Row({
           </div>
 
           {row.status === "read" && <CandidateDetail id={row.id} />}
+
+          {/* Last, because it is about what happens after the decision rather
+              than about making it. Loaded only when asked for - it re-runs the
+              matching, and most candidates are never sent one. */}
+          {row.status === "read" && (
+            <GrowthPlan id={row.id} name={row.full_name} tier={row.tier} />
+          )}
         </div>
       )}
     </div>

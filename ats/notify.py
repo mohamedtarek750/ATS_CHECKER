@@ -796,3 +796,117 @@ def alert_digest(alerts: list, base_url: str = "") -> list[Sent]:
 
     return [send(address, headline, "\n".join(lines), _page("".join(body)))
             for address in recipients]
+
+
+def development_plan(application, posting, plan) -> Sent:
+    """What would close the gap, to the person it is about.
+
+    THE ONE MESSAGE IN HERE THAT NEEDS A HUMAN BEHIND IT.
+
+    Everything else this module sends is either a receipt for something the
+    recipient did, or a digest to the team. This is neither: it goes to
+    somebody who applied and did not get through, and however it is worded, its
+    arrival tells them so. That is a thing a person decides, having read it -
+    which is why nothing schedules this, and no loop calls it.
+
+    It never gives a verdict and never gives a number. The percentage is the
+    engine's internal arithmetic against one advert; sending it would turn a
+    working figure into a grade somebody carries around. What goes out is the
+    list of what the advert asked for and the CV did not show, which is true,
+    checkable, and the only part that is any use to them.
+    """
+    name = safe_name(application.full_name)
+    first = html.escape(name.split(" ")[0] or "there")
+    plain_first = name.split(" ")[0] or "there"
+    role = html.escape(posting.title)
+
+    must = [s for s in plan.steps if s.is_must][:6]
+    nice = [s for s in plan.steps if not s.is_must][:3]
+    if not (must or nice or plan.experience_note):
+        return Sent(ok=False, skipped=True, detail="nothing to suggest")
+
+    lines = [
+        f"Hello {plain_first},",
+        "",
+        f"Thank you for applying for {posting.title}. On this occasion your CV "
+        f"did not go through to the next stage.",
+        "",
+        "Rather than leave it there: below is what this particular advert asked "
+        "for that your CV did not show. It is not a judgement of your work - it "
+        "is a list, taken from the advert, of what was not evidenced in the "
+        "document you sent.",
+        "",
+    ]
+    body = [
+        f"<p>Hello {first},</p>",
+        f"<p>Thank you for applying for <strong>{role}</strong>. On this "
+        f"occasion your CV did not go through to the next stage.</p>",
+        '<p>Rather than leave it there: below is what this particular advert '
+        "asked for that your CV did not show. It is not a judgement of your "
+        "work &mdash; it is a list, taken from the advert, of what was not "
+        "evidenced in the document you sent.</p>",
+    ]
+
+    def section(title: str, steps: list) -> None:
+        if not steps:
+            return
+        lines.append(title)
+        lines.append("-" * len(title))
+        body.append(
+            f'<p style="margin:18px 0 6px"><strong>{html.escape(title)}</strong></p>'
+        )
+        for step in steps:
+            lines.append(f"  * {step.requirement}")
+            lines.append(f"    {step.advice}")
+            for resource in step.resources:
+                lines.append(f"    {resource.name}: {resource.url}")
+            lines.append("")
+
+            links = " &middot; ".join(
+                f'<a href="{html.escape(r.url)}" style="color:#ed1c24;'
+                f'text-decoration:none">{html.escape(r.name)}</a>'
+                for r in step.resources
+            )
+            body.append(
+                '<div style="border-left:3px solid #eee;padding:8px 0 8px 12px;'
+                'margin:0 0 10px">'
+                f'<div style="font-weight:600">{html.escape(step.requirement)}</div>'
+                f'<div style="color:#444;font-size:14px;margin-top:2px">'
+                f"{html.escape(step.advice)}</div>"
+                + (
+                    f'<div style="margin-top:6px;font-size:13px">{links}</div>'
+                    if links
+                    else ""
+                )
+                + "</div>"
+            )
+
+    section("What the advert required", must)
+    section("What it preferred", nice)
+
+    if plan.experience_note:
+        lines += ["On experience", "-------------", plan.experience_note, ""]
+        body.append(
+            '<p style="margin:18px 0 6px"><strong>On experience</strong></p>'
+            f'<p style="color:#444;font-size:14px">'
+            f"{html.escape(plan.experience_note)}</p>"
+        )
+
+    closing = (
+        "The roles here change, and applying again later is welcome. The links "
+        "are searches on well-known platforms rather than one course we picked "
+        "for you - what is worth doing depends on where you are starting from."
+    )
+    lines += ["", closing, "", "This message was sent by a person at ACUD, not "
+              "automatically."]
+    body.append(
+        f'<p style="color:#666;font-size:13px;line-height:1.55;margin-top:18px">'
+        f"{html.escape(closing)}</p>"
+    )
+
+    return send(
+        application.email,
+        f"Your application for {posting.title}",
+        "\n".join(lines),
+        _page("".join(body)),
+    )

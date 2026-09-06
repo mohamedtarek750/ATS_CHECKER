@@ -557,6 +557,68 @@ export async function whoAmI(): Promise<AdminUser> {
   return unwrapAdmin<AdminUser>(await adminFetch("/api/auth/me"));
 }
 
+export interface PlanResource {
+  name: string;
+  url: string;
+  /** "course" - taught material. "practice" - somewhere to do the thing. */
+  kind: string;
+}
+
+export interface PlanStep {
+  requirement: string;
+  kind: string;
+  importance: string;
+  status: string;
+  /** What the CV did show, when it showed something. */
+  found: string;
+  /** Percentage points closing this would recover, by the engine's own sums. */
+  worth: number;
+  advice: string;
+  resources: PlanResource[];
+}
+
+export interface Plan {
+  application_id: string;
+  full_name: string;
+  email: string;
+  job_title: string;
+  percent_now: number;
+  /** The percentage if every step were met, by the same formula. */
+  percent_after: number;
+  reaches_bar: boolean;
+  steps: PlanStep[];
+  /** Set when time in a role is the gap. No course closes that one. */
+  experience_note: string;
+}
+
+export interface PlanSent {
+  sent: boolean;
+  to: string;
+  detail: string;
+}
+
+/** What this advert asked for that this CV did not show. */
+export async function fetchPlan(applicationId: string): Promise<Plan> {
+  return unwrapAdmin<Plan>(
+    await adminFetch(`/api/applications/${applicationId}/plan`)
+  );
+}
+
+/**
+ * Email it to the candidate.
+ *
+ * Pressed by a person, per candidate. Nothing schedules this: a plan that
+ * arrives unasked is a rejection notice however kindly it is worded, and this
+ * system has never let a machine send one of those.
+ */
+export async function sendPlan(applicationId: string): Promise<PlanSent> {
+  return unwrapAdmin<PlanSent>(
+    await adminFetch(`/api/applications/${applicationId}/plan/send`, {
+      method: "POST",
+    })
+  );
+}
+
 export async function listPostings(): Promise<Posting[]> {
   return unwrapAdmin<Posting[]>(await adminFetch("/api/postings"));
 }

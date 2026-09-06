@@ -45,6 +45,7 @@ from ats.stages import from_cv, jobspec, offline, parse, rank  # noqa: E402
 from ats.stages import template_match as template  # noqa: E402
 from ats.stages import match as match_stage  # noqa: E402
 from ats import alerts as alerting  # noqa: E402
+from ats import growth  # noqa: E402
 from ats import intake, postings  # noqa: E402
 from ats.backends import BackendError, get_backend  # noqa: E402
 from ats import auth, injection, notify, stats as stats_module  # noqa: E402
@@ -1051,6 +1052,126 @@ def application_detail(
         raise HTTPException(409, "This CV has not been read yet.")
     _profile, entry, report = detail
     return _ranked_out(entry, _template_out(report))
+
+
+class ResourceOut(BaseModel):
+    name: str
+    url: str
+    kind: str
+
+
+class StepOut(BaseModel):
+    requirement: str
+    kind: str
+    importance: str
+    status: str
+    found: str
+    #: Percentage points this would recover, by the scoring engine's own sums.
+    worth: float
+    advice: str
+    resources: list[ResourceOut]
+
+
+class PlanOut(BaseModel):
+    application_id: str
+    full_name: str
+    email: str
+    job_title: str
+    percent_now: int
+    percent_after: int
+    reaches_bar: bool
+    steps: list[StepOut]
+    experience_note: str
+
+
+def _plan_for(application_id: str) -> tuple[PlanOut, object, object]:
+    backend = get_backend()
+    row = backend.application(application_id)
+    if row is None:
+        raise HTTPException(404, "No such application.")
+    posting = _require_posting(row.job_slug)
+
+    detail = intake.detail_for(backend, posting, row)
+    if detail is None:
+        raise HTTPException(409, "This CV has not been read yet.")
+    _profile, entry, _report = detail
+
+    plan = growth.build(entry.match, entry.percent)
+    return (
+        PlanOut(
+            application_id=row.id,
+            full_name=row.full_name,
+            email=row.email,
+            job_title=posting.title,
+            percent_now=plan.percent_now,
+            percent_after=plan.percent_after,
+            reaches_bar=plan.reaches_bar,
+            steps=[
+                StepOut(
+                    requirement=s.requirement, kind=s.kind, importance=s.importance,
+                    status=s.status, found=s.found, worth=s.worth, advice=s.advice,
+                    resources=[
+                        ResourceOut(name=r.name, url=r.url, kind=r.kind)
+                        for r in s.resources
+                    ],
+                )
+                for s in plan.steps
+            ],
+            experience_note=plan.experience_note,
+        ),
+        plan,
+        (row, posting),
+    )
+
+
+@app.get("/api/applications/{application_id}/plan", response_model=PlanOut)
+def development_plan(
+    application_id: str, admin: auth.AdminUser = Depends(require_admin)
+) -> PlanOut:
+    """What would close the gap for one candidate, on one advert.
+
+    Every step is a requirement this advert really asked for and this CV really
+    missed, and the arithmetic is the scoring engine's own - so "this would take
+    you to 79%" is a number the system can stand behind rather than encouragement.
+    """
+    out, _plan, _who = _plan_for(application_id)
+    return out
+
+
+class PlanSentOut(BaseModel):
+    sent: bool
+    to: str
+    detail: str = ""
+
+
+@app.post("/api/applications/{application_id}/plan/send", response_model=PlanSentOut)
+def send_development_plan(
+    application_id: str, admin: auth.AdminUser = Depends(require_admin)
+) -> PlanSentOut:
+    """Email the plan to the candidate. Pressed by a person, never scheduled.
+
+    This is the closest this system comes to telling somebody they did not get
+    a job, and it is why it is a button rather than a cron. A plan that arrives
+    unasked IS a rejection notice, and a machine has no business sending one -
+    so a recruiter reads it and decides, per candidate.
+    """
+    out, plan, (row, posting) = _plan_for(application_id)
+
+    if not plan.has_anything_to_say:
+        return PlanSentOut(
+            sent=False, to=row.email,
+            detail="This CV met everything the advert asked for, so there is "
+                   "nothing to suggest.",
+        )
+    if not notify.is_configured():
+        raise HTTPException(
+            400,
+            "No mail provider is configured, so nothing can be sent. See the "
+            "notifications page.",
+        )
+
+    result = notify.development_plan(row, posting, plan)
+    return PlanSentOut(sent=result.ok, to=row.email, detail=result.note)
 
 
 @app.get("/api/cv-file/{application_id}")
